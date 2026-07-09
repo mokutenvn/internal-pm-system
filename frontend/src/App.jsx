@@ -83,8 +83,24 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   // Form creation inputs
-  const [newProject, setNewProject] = useState({ name: '', description: '', status: 'Active' });
-  const [newTask, setNewTask] = useState({ projectId: '', title: '', description: '', assigneeId: '', dueDate: '', priority: 'Medium', sprintId: '', departmentId: '1', parentTaskId: '', estimate: '0', status: 'To Do' });
+  const [newProject, setNewProject] = useState({ 
+    name: 'Dự án Drone Khảo sát Rừng', 
+    description: 'Thiết bị bay tự hành tích hợp camera quang học và cảm biến nhiệt để giám sát sớm cháy rừng v1.0', 
+    status: 'Active' 
+  });
+  const [newTask, setNewTask] = useState({ 
+    projectId: '', 
+    title: 'Thiết kế sơ đồ nguyên lý khối vi điều khiển STM32', 
+    description: 'Vẽ schematic cho chip STM32F4, tích hợp mạch lọc nguồn, SWD programming interface và thạch anh dao động.', 
+    assigneeId: '', 
+    dueDate: new Date().toISOString().split('T')[0], 
+    priority: 'Medium', 
+    sprintId: '', 
+    departmentId: '1', 
+    parentTaskId: '', 
+    estimate: '8', 
+    status: 'To Do' 
+  });
   const [newGoalType, setNewGoalType] = useState('day');
   const [newGoalDate, setNewGoalDate] = useState(new Date().toISOString().split('T')[0]);
   const [goalInputs, setGoalInputs] = useState(['']); // Danh sách mục tiêu thêm cùng lúc
@@ -117,22 +133,61 @@ export default function App() {
 
   // New R&D Modals toggle
   const [showSprintModal, setShowSprintModal] = useState(false);
-  const [newSprint, setNewSprint] = useState({ name: '', goal: '', startDate: '', endDate: '', status: 'Planned' });
+  const [newSprint, setNewSprint] = useState({ 
+    name: 'Sprint 1 - Thiết kế mạch & Nạp Bootloader', 
+    goal: 'Hoàn thiện bản vẽ PCB nguyên lý và nạp thành công Bootloader qua cổng nạp SWD', 
+    startDate: new Date().toISOString().split('T')[0], 
+    endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], 
+    status: 'Planned' 
+  });
   const [editingTask, setEditingTask] = useState(null); // Task being edited
   const [showAssetModal, setShowAssetModal] = useState(false);
-  const [newAsset, setNewAsset] = useState({ name: '', serialNumber: '' });
+  const [newAsset, setNewAsset] = useState({ 
+    name: 'Máy đo dao động ký Keysight DSOX1204G', 
+    serialNumber: 'MY59214782' 
+  });
   const [showProcureModal, setShowProcureModal] = useState(false);
-  const [newProcurement, setNewProcurement] = useState({ projectId: '', departmentId: '1', itemName: '', url: '', quantity: '1', estimatedPrice: '0' });
+  const [newProcurement, setNewProcurement] = useState({ 
+    projectId: '', 
+    departmentId: '1', 
+    itemName: 'IC vi điều khiển STM32F405RGT6 LQFP64', 
+    url: 'https://www.mouser.vn/ProductDetail/STMicroelectronics/STM32F405RGT6', 
+    quantity: '5', 
+    estimatedPrice: '185000' 
+  });
   const [showBookingModal, setShowBookingModal] = useState(false);
-  const [newBooking, setNewBooking] = useState({ equipmentName: 'Máy in 3D Bambu Lab X1C', startTime: '', endTime: '' });
+  const [newBooking, setNewBooking] = useState({ 
+    equipmentName: 'Máy in 3D Bambu Lab X1C', 
+    startTime: new Date().toISOString().substring(0, 16), 
+    endTime: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString().substring(0, 16) 
+  });
   const [showFailureModal, setShowFailureModal] = useState(false);
-  const [newFailure, setNewFailure] = useState({ title: '', description: '', solution: '', projectId: '', departmentId: '1' });
+  const [newFailure, setNewFailure] = useState({ 
+    title: 'IC nguồn LM2596 bị cháy nổ khi cắm nguồn 24V đầu vào', 
+    description: 'Nguyên nhân do diode Schottky ngược dòng D1 bị ngược cực tính hoặc tụ lọc ngõ vào có điện áp chịu đựng thấp (16V thay vì 35V).', 
+    solution: 'Thay thế diode Schottky đúng cực, đổi tụ ngõ vào sang loại nhôm chịu áp 50V.', 
+    projectId: '', 
+    departmentId: '1' 
+  });
   const [showFirmwareModal, setShowFirmwareModal] = useState(false);
-  const [newFirmware, setNewFirmware] = useState({ projectId: '', version: '', pcbVersionCompatible: '', changelog: '' });
+  const [newFirmware, setNewFirmware] = useState({ 
+    projectId: '', 
+    version: 'v1.0.2-alpha', 
+    pcbVersionCompatible: 'PCB-DRONE-V1.2', 
+    changelog: 'Cập nhật bộ PID ổn định động cơ cánh quạt, sửa lỗi mất kết nối sóng RF thu phát.' 
+  });
   const [showWikiModal, setShowWikiModal] = useState(false);
-  const [newWiki, setNewWiki] = useState({ title: '', contentMarkdown: '' });
+  const [newWiki, setNewWiki] = useState({ 
+    title: 'Hướng dẫn cài đặt Keil C51 và nạp code cho vi điều khiển R&D', 
+    contentMarkdown: '# Hướng dẫn cài đặt\n\n1. Tải Keil C51 từ trang chủ.\n2. Cài đặt driver CH340 cho mạch nạp USB-UART.\n3. Kết nối cổng nạp TX/RX chéo với MCU.' 
+  });
   const [showLinkModal, setShowLinkModal] = useState(false);
-  const [newLink, setNewLink] = useState({ projectId: '', label: '', url: '', description: '' });
+  const [newLink, setNewLink] = useState({ 
+    projectId: '', 
+    label: 'Bản vẽ CAD thiết kế vỏ Drone (Solidworks)', 
+    url: 'https://github.com/mokutenvn/internal-pm-system', 
+    description: 'File 3D STEP hoàn thiện của vỏ nhựa in 3D chống nước.' 
+  });
   const [showInheritModal, setShowInheritModal] = useState(false);
   const [inheritForm, setInheritForm] = useState({ sourceProjectId: '', inheritBOM: true, inheritLinks: true });
 
@@ -1740,6 +1795,10 @@ export default function App() {
               <div style={{ display: 'flex', gap: '12px' }}>
                 {(user.role === 'admin' || user.role === 'leader') && (
                   <>
+                    <button className="btn btn-secondary" onClick={() => setShowProjectModal(true)}>
+                      <Plus size={16} />
+                      Thêm Dự án
+                    </button>
                     <button className="btn btn-secondary" onClick={() => setShowSprintModal(true)}>
                       <Plus size={16} />
                       Thêm Sprint
