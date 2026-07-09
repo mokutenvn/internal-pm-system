@@ -212,27 +212,56 @@ app.put('/api/projects/:id', authenticateToken, requireLeaderOrAdmin, (req, res)
 });
 
 // --- TASKS APIS ---
+async function sendTelegramAlert(message) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) {
+    console.log(`[Telegram Alert (Not Configured)]: ${message}`);
+    return;
+  }
+  try {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' })
+    });
+  } catch (err) {
+    console.error(`Lỗi kết nối Telegram API:`, err);
+  }
+}
+
 app.get('/api/tasks', authenticateToken, (req, res) => {
   const tasks = getAll('tasks');
   res.json(tasks);
 });
 
 app.post('/api/tasks', authenticateToken, requireLeaderOrAdmin, (req, res) => {
-  const { projectId, title, description, assigneeId, deadline, priority } = req.body;
-  if (!projectId || !title || !assigneeId || !deadline) {
-    return res.status(400).json({ message: 'Vui lòng điền đầy đủ các trường bắt buộc (Dự án, Tiêu đề, Người thực hiện, Deadline).' });
+  const { projectId, title, description, assigneeId, dueDate, priority, sprintId, departmentId, parentTaskId, estimate, status } = req.body;
+  if (!projectId || !title || !assigneeId) {
+    return res.status(400).json({ message: 'Vui lòng điền đầy đủ các trường bắt buộc (Dự án, Tiêu đề, Người thực hiện).' });
   }
 
   const newTask = insert('tasks', {
     projectId: Number(projectId),
+    sprintId: sprintId ? Number(sprintId) : null,
+    departmentId: departmentId ? Number(departmentId) : 1,
+    parentTaskId: parentTaskId ? Number(parentTaskId) : null,
     title,
     description: description || '',
     assigneeId: Number(assigneeId),
-    deadline,
+    dueDate: dueDate || '',
+    estimate: estimate ? Number(estimate) : 0,
     progress: 0,
     priority: priority || 'Medium',
-    status: 'Active'
+    status: status || 'To Do',
+    createdBy: req.user.id
   });
+
+  const assignee = getById('users', Number(assigneeId));
+  const proj = getById('projects', Number(projectId));
+  sendTelegramAlert(`<b>[Nhiệm vụ mới]</b> Giao việc cho <b>${assignee ? assignee.fullName : 'nhân viên'}</b>\nDự án: ${proj ? proj.name : 'N/A'}\nTask: ${title}\nHạn chót: ${dueDate || 'N/A'}`);
+
   res.status(201).json(newTask);
 });
 
@@ -249,15 +278,19 @@ app.put('/api/tasks/:id', authenticateToken, (req, res) => {
     return res.status(403).json({ message: 'Bạn không có quyền chỉnh sửa công việc này.' });
   }
 
-  const { title, description, assigneeId, deadline, progress, priority, status } = req.body;
+  const { title, description, assigneeId, dueDate, progress, priority, status, sprintId, departmentId, parentTaskId, estimate } = req.body;
 
   const updates = {};
   if (isLeaderOrAdmin) {
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
     if (assigneeId !== undefined) updates.assigneeId = Number(assigneeId);
-    if (deadline !== undefined) updates.deadline = deadline;
+    if (dueDate !== undefined) updates.dueDate = dueDate;
     if (priority !== undefined) updates.priority = priority;
+    if (sprintId !== undefined) updates.sprintId = sprintId ? Number(sprintId) : null;
+    if (departmentId !== undefined) updates.departmentId = Number(departmentId);
+    if (parentTaskId !== undefined) updates.parentTaskId = parentTaskId ? Number(parentTaskId) : null;
+    if (estimate !== undefined) updates.estimate = Number(estimate);
   }
 
   // Both assignee and leader/admin can update progress & status
@@ -266,13 +299,23 @@ app.put('/api/tasks/:id', authenticateToken, (req, res) => {
     updates.progress = Math.min(100, Math.max(0, progVal));
     if (updates.progress === 100) {
       updates.status = 'Done';
-    } else if (updates.progress > 0 && task.status === 'New') {
-      updates.status = 'Active';
+    } else if (updates.progress > 0 && task.status === 'To Do') {
+      updates.status = 'In Progress';
     }
   }
-  if (status !== undefined) updates.status = status;
+  if (status !== undefined) {
+    updates.status = status;
+    if (status === 'Done') {
+      updates.progress = 100;
+    }
+  }
 
   const updated = update('tasks', req.params.id, updates);
+  if (updates.status === 'Done' && task.status !== 'Done') {
+    const proj = getById('projects', updated.projectId);
+    const assignee = getById('users', updated.assigneeId);
+    sendTelegramAlert(`<b>[Nhiệm vụ hoàn thành]</b>\nDự án: ${proj ? proj.name : 'N/A'}\nTask: <b>${updated.title}</b> đã hoàn thành bởi <b>${assignee ? assignee.fullName : 'nhân viên'}</b>!`);
+  }
   res.json(updated);
 });
 
@@ -280,6 +323,71 @@ app.delete('/api/tasks/:id', authenticateToken, requireLeaderOrAdmin, (req, res)
   const deleted = remove('tasks', req.params.id);
   if (!deleted) return res.status(404).json({ message: 'Không tìm thấy công việc để xóa.' });
   res.json({ message: 'Xóa công việc thành công.' });
+});
+
+// --- SPRINTS APIS ---
+app.get('/api/sprints', authenticateToken, (req, res) => {
+  res.json(getAll('sprints'));
+});
+
+app.post('/api/sprints', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const { projectId, name, goal, startDate, endDate, status } = req.body;
+  if (!projectId || !name) {
+    return res.status(400).json({ message: 'Vui lòng cung cấp Dự án và Tên Sprint.' });
+  }
+
+  const newSprint = insert('sprints', {
+    projectId: Number(projectId),
+    name,
+    goal: goal || '',
+    startDate: startDate || '',
+    endDate: endDate || '',
+    status: status || 'Planned'
+  });
+  res.status(201).json(newSprint);
+});
+
+app.put('/api/sprints/:id', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const { name, goal, startDate, endDate, status } = req.body;
+  const updated = update('sprints', req.params.id, { name, goal, startDate, endDate, status });
+  if (!updated) return res.status(404).json({ message: 'Không tìm thấy Sprint.' });
+  res.json(updated);
+});
+
+app.delete('/api/sprints/:id', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const deleted = remove('sprints', req.params.id);
+  if (!deleted) return res.status(404).json({ message: 'Không tìm thấy Sprint để xóa.' });
+  res.json({ message: 'Xóa Sprint thành công.' });
+});
+
+// --- STANDUPS APIS ---
+app.get('/api/standups', authenticateToken, (req, res) => {
+  const { projectId, date } = req.query;
+  let standups = getAll('standups');
+  if (projectId) {
+    standups = standups.filter(s => s.projectId === Number(projectId));
+  }
+  if (date) {
+    standups = standups.filter(s => s.date === date);
+  }
+  res.json(standups);
+});
+
+app.post('/api/standups', authenticateToken, (req, res) => {
+  const { projectId, date, completedWork, planToday, blockers } = req.body;
+  if (!projectId || !completedWork || !planToday) {
+    return res.status(400).json({ message: 'Vui lòng điền đầy đủ thông tin Standup.' });
+  }
+
+  const newStandup = insert('standups', {
+    userId: req.user.id,
+    projectId: Number(projectId),
+    date: date || new Date().toISOString().split('T')[0],
+    completedWork,
+    planToday,
+    blockers: blockers || 'Không có'
+  });
+  res.status(201).json(newStandup);
 });
 
 // --- GOALS APIS ---
@@ -756,6 +864,377 @@ app.get('/api/reports/export-doc', authenticateToken, requireLeaderOrAdmin, (req
   res.setHeader('Content-Type', 'application/msword');
   res.setHeader('Content-Disposition', `attachment; filename="Bao_Cao_Tuan_${weekStartDate}.doc"`);
   res.send(html);
+});
+
+// --- MODULE VẬN HÀNH LAB & LINH KIỆN APIS ---
+
+// Lab Assets
+app.get('/api/assets', authenticateToken, (req, res) => {
+  res.json(getAll('assets'));
+});
+
+app.post('/api/assets', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const { name, serialNumber, status } = req.body;
+  if (!name || !serialNumber) {
+    return res.status(400).json({ message: 'Vui lòng cung cấp Tên và Số Serial thiết bị.' });
+  }
+  const newAsset = insert('assets', { name, serialNumber, status: status || 'Available' });
+  res.status(201).json(newAsset);
+});
+
+app.put('/api/assets/:id', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const updated = update('assets', req.params.id, req.body);
+  if (!updated) return res.status(404).json({ message: 'Không tìm thấy thiết bị.' });
+  res.json(updated);
+});
+
+app.delete('/api/assets/:id', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const deleted = remove('assets', req.params.id);
+  if (!deleted) return res.status(404).json({ message: 'Không tìm thấy thiết bị để xóa.' });
+  res.json({ message: 'Xóa thiết bị thành công.' });
+});
+
+// Asset Loans
+app.get('/api/asset-loans', authenticateToken, (req, res) => {
+  res.json(getAll('asset_loans'));
+});
+
+app.post('/api/asset-loans', authenticateToken, (req, res) => {
+  const { assetId, loanDate, returnDate } = req.body;
+  if (!assetId || !loanDate) {
+    return res.status(400).json({ message: 'Vui lòng điền Thiết bị và Ngày mượn.' });
+  }
+
+  const asset = getById('assets', assetId);
+  if (!asset || asset.status !== 'Available') {
+    return res.status(400).json({ message: 'Thiết bị hiện không sẵn sàng để mượn.' });
+  }
+
+  const newLoan = insert('asset_loans', {
+    assetId: Number(assetId),
+    userId: req.user.id,
+    loanDate,
+    returnDate: returnDate || '',
+    status: 'Pending'
+  });
+  res.status(201).json(newLoan);
+});
+
+app.put('/api/asset-loans/:id', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const { status } = req.body; // Approved | Returned
+  const loan = getById('asset_loans', req.params.id);
+  if (!loan) return res.status(404).json({ message: 'Không tìm thấy đơn mượn.' });
+
+  const updatedLoan = update('asset_loans', req.params.id, { status });
+  if (status === 'Approved') {
+    update('assets', loan.assetId, { status: 'Loaned' });
+  } else if (status === 'Returned') {
+    update('assets', loan.assetId, { status: 'Available' });
+  }
+
+  res.json(updatedLoan);
+});
+
+// Procurements (Đề xuất linh kiện BOM)
+app.get('/api/procurements', authenticateToken, (req, res) => {
+  res.json(getAll('procurements'));
+});
+
+app.post('/api/procurements', authenticateToken, (req, res) => {
+  const { projectId, departmentId, itemName, url, quantity, estimatedPrice } = req.body;
+  if (!projectId || !itemName || !quantity || !estimatedPrice) {
+    return res.status(400).json({ message: 'Vui lòng điền đầy đủ các thông tin bắt buộc.' });
+  }
+
+  const newProc = insert('procurements', {
+    userId: req.user.id,
+    projectId: Number(projectId),
+    departmentId: Number(departmentId || 1),
+    itemName,
+    url: url || '',
+    quantity: Number(quantity),
+    estimatedPrice: Number(estimatedPrice),
+    status: 'Pending'
+  });
+  res.status(201).json(newProc);
+});
+
+app.put('/api/procurements/:id', authenticateToken, (req, res) => {
+  const proc = getById('procurements', req.params.id);
+  if (!proc) return res.status(404).json({ message: 'Không tìm thấy đề xuất mua sắm.' });
+
+  const isOwner = proc.userId === req.user.id;
+  const isLeaderOrAdmin = req.user.role === 'admin' || req.user.role === 'leader';
+
+  if (!isOwner && !isLeaderOrAdmin) {
+    return res.status(403).json({ message: 'Bạn không có quyền chỉnh sửa đề xuất này.' });
+  }
+
+  const { itemName, url, quantity, estimatedPrice, status } = req.body;
+  const updates = {};
+  if (isLeaderOrAdmin && status !== undefined) {
+    updates.status = status; // Pending | Approved | Ordered | Received
+  }
+  if (isOwner || isLeaderOrAdmin) {
+    if (itemName !== undefined) updates.itemName = itemName;
+    if (url !== undefined) updates.url = url;
+    if (quantity !== undefined) updates.quantity = Number(quantity);
+    if (estimatedPrice !== undefined) updates.estimatedPrice = Number(estimatedPrice);
+  }
+
+  const updated = update('procurements', req.params.id, updates);
+  res.json(updated);
+});
+
+app.delete('/api/procurements/:id', authenticateToken, (req, res) => {
+  const proc = getById('procurements', req.params.id);
+  if (!proc) return res.status(404).json({ message: 'Không tìm thấy đề xuất.' });
+
+  if (proc.userId !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'leader') {
+    return res.status(403).json({ message: 'Bạn không có quyền xóa đề xuất này.' });
+  }
+
+  remove('procurements', req.params.id);
+  res.json({ message: 'Xóa đề xuất mua sắm thành công.' });
+});
+
+// Lab Bookings
+app.get('/api/lab-bookings', authenticateToken, (req, res) => {
+  res.json(getAll('lab_bookings'));
+});
+
+app.post('/api/lab-bookings', authenticateToken, (req, res) => {
+  const { equipmentName, startTime, endTime } = req.body;
+  if (!equipmentName || !startTime || !endTime) {
+    return res.status(400).json({ message: 'Vui lòng cung cấp Thiết bị và Thời gian đặt chỗ.' });
+  }
+
+  const newBooking = insert('lab_bookings', {
+    equipmentName,
+    userId: req.user.id,
+    startTime,
+    endTime
+  });
+  res.status(201).json(newBooking);
+});
+
+app.delete('/api/lab-bookings/:id', authenticateToken, (req, res) => {
+  const booking = getById('lab_bookings', req.params.id);
+  if (!booking) return res.status(404).json({ message: 'Không tìm thấy lịch đặt.' });
+
+  if (booking.userId !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'leader') {
+    return res.status(403).json({ message: 'Bạn không có quyền xóa lịch đặt này.' });
+  }
+
+  remove('lab_bookings', req.params.id);
+  res.json({ message: 'Xóa lịch đặt chỗ thành công.' });
+});
+
+
+// --- MODULE TRI THỨC & CHẤT LƯỢNG APIS ---
+
+// Failure Logs (Nhật ký lỗi)
+app.get('/api/failure-logs', authenticateToken, (req, res) => {
+  res.json(getAll('failure_logs'));
+});
+
+app.post('/api/failure-logs', authenticateToken, (req, res) => {
+  const { title, description, solution, projectId, departmentId } = req.body;
+  if (!title || !description || !solution) {
+    return res.status(400).json({ message: 'Vui lòng nhập đầy đủ Tiêu đề, Mô tả và Giải pháp khắc phục.' });
+  }
+
+  const newLog = insert('failure_logs', {
+    title,
+    description,
+    solution,
+    projectId: projectId ? Number(projectId) : null,
+    departmentId: departmentId ? Number(departmentId) : null,
+    userId: req.user.id
+  });
+  res.status(201).json(newLog);
+});
+
+app.put('/api/failure-logs/:id', authenticateToken, (req, res) => {
+  const log = getById('failure_logs', req.params.id);
+  if (!log) return res.status(404).json({ message: 'Không tìm thấy nhật ký lỗi.' });
+
+  if (log.userId !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'leader') {
+    return res.status(403).json({ message: 'Bạn không có quyền chỉnh sửa nhật ký lỗi này.' });
+  }
+
+  const updated = update('failure_logs', req.params.id, req.body);
+  res.json(updated);
+});
+
+app.delete('/api/failure-logs/:id', authenticateToken, (req, res) => {
+  const log = getById('failure_logs', req.params.id);
+  if (!log) return res.status(404).json({ message: 'Không tìm thấy nhật ký lỗi.' });
+
+  if (log.userId !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'leader') {
+    return res.status(403).json({ message: 'Bạn không có quyền xóa nhật ký lỗi này.' });
+  }
+
+  remove('failure_logs', req.params.id);
+  res.json({ message: 'Xóa nhật ký lỗi thành công.' });
+});
+
+// Firmware Releases
+app.get('/api/firmware-releases', authenticateToken, (req, res) => {
+  res.json(getAll('firmware_releases'));
+});
+
+app.post('/api/firmware-releases', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const { projectId, version, pcbVersionCompatible, changelog } = req.body;
+  if (!projectId || !version || !pcbVersionCompatible) {
+    return res.status(400).json({ message: 'Vui lòng cung cấp Dự án, Phiên bản firmware và Mạch tương thích.' });
+  }
+
+  // Giả lập lưu file build local
+  const newRelease = insert('firmware_releases', {
+    projectId: Number(projectId),
+    version,
+    pcbVersionCompatible,
+    changelog: changelog || '',
+    filePath: 'uploads/firmware/' + version + '.bin',
+    releaseDate: new Date().toISOString().split('T')[0]
+  });
+  res.status(201).json(newRelease);
+});
+
+// Project Links (Altium, Solidworks,...)
+app.get('/api/project-links', authenticateToken, (req, res) => {
+  res.json(getAll('project_links'));
+});
+
+app.post('/api/project-links', authenticateToken, (req, res) => {
+  const { projectId, label, url, description } = req.body;
+  if (!projectId || !label || !url) {
+    return res.status(400).json({ message: 'Vui lòng cung cấp Dự án, Nhãn và Đường dẫn URL.' });
+  }
+
+  const newLink = insert('project_links', {
+    projectId: Number(projectId),
+    label,
+    url,
+    description: description || ''
+  });
+  res.status(201).json(newLink);
+});
+
+app.delete('/api/project-links/:id', authenticateToken, (req, res) => {
+  remove('project_links', req.params.id);
+  res.json({ message: 'Xóa liên kết thành công.' });
+});
+
+// Setup Wiki
+app.get('/api/wiki-pages', authenticateToken, (req, res) => {
+  res.json(getAll('wiki_pages'));
+});
+
+app.post('/api/wiki-pages', authenticateToken, (req, res) => {
+  const { title, contentMarkdown } = req.body;
+  if (!title || !contentMarkdown) {
+    return res.status(400).json({ message: 'Vui lòng cung cấp Tiêu đề và Nội dung Wiki.' });
+  }
+
+  const newPage = insert('wiki_pages', {
+    title,
+    contentMarkdown,
+    updatedBy: req.user.id,
+    updatedAt: new Date().toISOString().split('T')[0]
+  });
+  res.status(201).json(newPage);
+});
+
+app.put('/api/wiki-pages/:id', authenticateToken, (req, res) => {
+  const updated = update('wiki_pages', req.params.id, {
+    ...req.body,
+    updatedBy: req.user.id,
+    updatedAt: new Date().toISOString().split('T')[0]
+  });
+  if (!updated) return res.status(404).json({ message: 'Không tìm thấy trang wiki.' });
+  res.json(updated);
+});
+
+
+// --- INHERITANCE & DASHBOARD APIS ---
+
+// Kế thừa dự án (BOM, Links)
+app.post('/api/projects/:id/inherit', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const childProjectId = Number(req.params.id);
+  const { sourceProjectId, inheritBOM, inheritLinks } = req.body;
+  if (!sourceProjectId) {
+    return res.status(400).json({ message: 'Vui lòng cung cấp Dự án nguồn để kế thừa.' });
+  }
+
+  const db = readDb();
+  
+  // Kế thừa BOM (procurements)
+  if (inheritBOM) {
+    const sourceBOM = (db.procurements || []).filter(p => p.projectId === Number(sourceProjectId));
+    sourceBOM.forEach(item => {
+      insert('procurements', {
+        userId: req.user.id,
+        projectId: childProjectId,
+        departmentId: item.departmentId,
+        itemName: item.itemName + ' (Kế thừa từ TH' + sourceProjectId + ')',
+        url: item.url,
+        quantity: item.quantity,
+        estimatedPrice: item.estimatedPrice,
+        status: 'Pending'
+      });
+    });
+  }
+
+  // Kế thừa Project Links
+  if (inheritLinks) {
+    const sourceLinks = (db.project_links || []).filter(l => l.projectId === Number(sourceProjectId));
+    sourceLinks.forEach(link => {
+      insert('project_links', {
+        projectId: childProjectId,
+        label: link.label,
+        url: link.url,
+        description: link.description
+      });
+    });
+  }
+
+  // Log inheritance
+  insert('project_inheritance_logs', {
+    childProjectId,
+    sourceProjectId: Number(sourceProjectId),
+    inheritBOM: !!inheritBOM,
+    inheritLinks: !!inheritLinks,
+    inheritedAt: new Date().toISOString().split('T')[0],
+    inheritedBy: req.user.id
+  });
+
+  // Gán parentProjectId cho dự án con
+  update('projects', childProjectId, { parentProjectId: Number(sourceProjectId) });
+
+  res.json({ message: 'Kế thừa dự án thành công!' });
+});
+
+// Dashboard stats
+app.get('/api/dashboard/stats', authenticateToken, (req, res) => {
+  const tasks = getAll('tasks');
+  const procurements = getAll('procurements');
+  const assets = getAll('assets');
+  const bookings = getAll('lab_bookings');
+
+  const stats = {
+    totalTasks: tasks.length,
+    activeTasks: tasks.filter(t => t.status !== 'Done').length,
+    doneTasks: tasks.filter(t => t.status === 'Done').length,
+    pendingProcurementsCount: procurements.filter(p => p.status === 'Pending').length,
+    pendingProcurementsCost: procurements.filter(p => p.status === 'Pending').reduce((acc, curr) => acc + (curr.quantity * curr.estimatedPrice), 0),
+    totalAssetsCount: assets.length,
+    loanedAssetsCount: assets.filter(a => a.status === 'Loaned').length,
+    activeBookingsCount: bookings.length
+  };
+
+  res.json(stats);
 });
 
 // Bind to 0.0.0.0 to allow access from local IP (Wifi / LAN)

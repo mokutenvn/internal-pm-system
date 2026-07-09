@@ -19,7 +19,17 @@ import {
   Sliders,
   Sun,
   Calendar,
-  Trash2
+  Trash2,
+  Bug,
+  Cpu,
+  BookOpen,
+  ShoppingCart,
+  Boxes,
+  Activity,
+  Link,
+  CalendarDays,
+  Layers,
+  Settings
 } from 'lucide-react';
 
 const API_BASE = `http://${window.location.hostname}:5000/api`;
@@ -48,6 +58,24 @@ export default function App() {
   const [usersList, setUsersList] = useState([]);
   const [reports, setReports] = useState([]);
 
+  // New R&D Data States
+  const [sprints, setSprints] = useState([]);
+  const [standupsList, setStandupsList] = useState([]);
+  const [assetsList, setAssetsList] = useState([]);
+  const [assetLoansList, setAssetLoansList] = useState([]);
+  const [procurementsList, setProcurementsList] = useState([]);
+  const [bookingsList, setBookingsList] = useState([]);
+  const [failureLogsList, setFailureLogsList] = useState([]);
+  const [firmwareReleasesList, setFirmwareReleasesList] = useState([]);
+  const [projectLinksList, setProjectLinksList] = useState([]);
+  const [wikiPagesList, setWikiPagesList] = useState([]);
+  const [dashboardStats, setDashboardStats] = useState(null);
+
+  // Selections
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [selectedSprintId, setSelectedSprintId] = useState('');
+  const [activeDeptTab, setActiveDeptTab] = useState('1'); // Department ID filter in Sprint board
+
   // Filter and Form States
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -56,7 +84,7 @@ export default function App() {
 
   // Form creation inputs
   const [newProject, setNewProject] = useState({ name: '', description: '', status: 'Active' });
-  const [newTask, setNewTask] = useState({ projectId: '', title: '', description: '', assigneeId: '', deadline: '', priority: 'Medium' });
+  const [newTask, setNewTask] = useState({ projectId: '', title: '', description: '', assigneeId: '', dueDate: '', priority: 'Medium', sprintId: '', departmentId: '1', parentTaskId: '', estimate: '0', status: 'To Do' });
   const [newGoalType, setNewGoalType] = useState('day');
   const [newGoalDate, setNewGoalDate] = useState(new Date().toISOString().split('T')[0]);
   const [goalInputs, setGoalInputs] = useState(['']); // Danh sách mục tiêu thêm cùng lúc
@@ -87,6 +115,31 @@ export default function App() {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [showMemberModal, setShowMemberModal] = useState(false);
 
+  // New R&D Modals toggle
+  const [showSprintModal, setShowSprintModal] = useState(false);
+  const [newSprint, setNewSprint] = useState({ name: '', goal: '', startDate: '', endDate: '', status: 'Planned' });
+  const [editingTask, setEditingTask] = useState(null); // Task being edited
+  const [showAssetModal, setShowAssetModal] = useState(false);
+  const [newAsset, setNewAsset] = useState({ name: '', serialNumber: '' });
+  const [showProcureModal, setShowProcureModal] = useState(false);
+  const [newProcurement, setNewProcurement] = useState({ projectId: '', departmentId: '1', itemName: '', url: '', quantity: '1', estimatedPrice: '0' });
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const [newBooking, setNewBooking] = useState({ equipmentName: 'Máy in 3D Bambu Lab X1C', startTime: '', endTime: '' });
+  const [showFailureModal, setShowFailureModal] = useState(false);
+  const [newFailure, setNewFailure] = useState({ title: '', description: '', solution: '', projectId: '', departmentId: '1' });
+  const [showFirmwareModal, setShowFirmwareModal] = useState(false);
+  const [newFirmware, setNewFirmware] = useState({ projectId: '', version: '', pcbVersionCompatible: '', changelog: '' });
+  const [showWikiModal, setShowWikiModal] = useState(false);
+  const [newWiki, setNewWiki] = useState({ title: '', contentMarkdown: '' });
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [newLink, setNewLink] = useState({ projectId: '', label: '', url: '', description: '' });
+  const [showInheritModal, setShowInheritModal] = useState(false);
+  const [inheritForm, setInheritForm] = useState({ sourceProjectId: '', inheritBOM: true, inheritLinks: true });
+
+  // Daily Standup Form
+  const [myStandup, setMyStandup] = useState({ completedWork: '', planToday: '', blockers: '' });
+  const [selectedStandupDate, setSelectedStandupDate] = useState(new Date().toISOString().split('T')[0]);
+
   // Auto-fetch data on load/token change
   useEffect(() => {
     if (token) {
@@ -100,18 +153,50 @@ export default function App() {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
 
-      // Fetch departments, projects, tasks, goals
-      const [deptsRes, projRes, taskRes, goalsRes] = await Promise.all([
+      // Fetch parallelly from 15 endpoints
+      const [
+        deptsRes, projRes, taskRes, goalsRes, sprintsRes,
+        standupsRes, assetsRes, loansRes, procsRes, bookingsRes,
+        failuresRes, releasesRes, linksRes, wikisRes, statsRes
+      ] = await Promise.all([
         fetch(`${API_BASE}/departments`, { headers }),
         fetch(`${API_BASE}/projects`, { headers }),
         fetch(`${API_BASE}/tasks`, { headers }),
-        fetch(`${API_BASE}/goals`, { headers })
+        fetch(`${API_BASE}/goals`, { headers }),
+        fetch(`${API_BASE}/sprints`, { headers }),
+        fetch(`${API_BASE}/standups`, { headers }),
+        fetch(`${API_BASE}/assets`, { headers }),
+        fetch(`${API_BASE}/asset-loans`, { headers }),
+        fetch(`${API_BASE}/procurements`, { headers }),
+        fetch(`${API_BASE}/lab-bookings`, { headers }),
+        fetch(`${API_BASE}/failure-logs`, { headers }),
+        fetch(`${API_BASE}/firmware-releases`, { headers }),
+        fetch(`${API_BASE}/project-links`, { headers }),
+        fetch(`${API_BASE}/wiki-pages`, { headers }),
+        fetch(`${API_BASE}/dashboard/stats`, { headers })
       ]);
 
       if (deptsRes.ok) setDepartments(await deptsRes.json());
-      if (projRes.ok) setProjects(await projRes.json());
+      if (projRes.ok) {
+        const prjs = await projRes.json();
+        setProjects(prjs);
+        if (prjs.length > 0 && !selectedProjectId) {
+          setSelectedProjectId(prjs[0].id.toString());
+        }
+      }
       if (taskRes.ok) setTasks(await taskRes.json());
       if (goalsRes.ok) setGoals(await goalsRes.json());
+      if (sprintsRes.ok) setSprints(await sprintsRes.json());
+      if (standupsRes.ok) setStandupsList(await standupsRes.json());
+      if (assetsRes.ok) setAssetsList(await assetsRes.json());
+      if (loansRes.ok) setAssetLoansList(await loansRes.json());
+      if (procsRes.ok) setProcurementsList(await procsRes.json());
+      if (bookingsRes.ok) setBookingsList(await bookingsRes.json());
+      if (failuresRes.ok) setFailureLogsList(await failuresRes.json());
+      if (releasesRes.ok) setFirmwareReleasesList(await releasesRes.json());
+      if (linksRes.ok) setProjectLinksList(await linksRes.json());
+      if (wikisRes.ok) setWikiPagesList(await wikisRes.json());
+      if (statsRes.ok) setDashboardStats(await statsRes.json());
 
       // If Admin or Leader, fetch users and weekly summary
       if (user && (user.role === 'admin' || user.role === 'leader')) {
@@ -270,11 +355,55 @@ export default function App() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(newTask)
+        body: JSON.stringify({
+          ...newTask,
+          projectId: Number(newTask.projectId || selectedProjectId),
+          sprintId: newTask.sprintId ? Number(newTask.sprintId) : null,
+          departmentId: Number(newTask.departmentId),
+          parentTaskId: newTask.parentTaskId ? Number(newTask.parentTaskId) : null,
+          estimate: Number(newTask.estimate)
+        })
       });
       if (res.ok) {
-        setNewTask({ projectId: '', title: '', description: '', assigneeId: '', deadline: '', priority: 'Medium' });
+        setNewTask({ projectId: '', title: '', description: '', assigneeId: '', dueDate: '', priority: 'Medium', sprintId: '', departmentId: '1', parentTaskId: '', estimate: '0', status: 'To Do' });
         setShowTaskModal(false);
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateTaskFull = async (taskId, updates) => {
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(updates)
+      });
+      if (res.ok) {
+        setEditingTask(null);
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteTask = async (taskId) => {
+    if (!confirm("Bạn có chắc chắn muốn xóa task này?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        setEditingTask(null);
         fetchCoreData();
       }
     } catch (err) {
@@ -294,6 +423,408 @@ export default function App() {
       });
       if (res.ok) {
         fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Sprints
+  const handleCreateSprint = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/sprints`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          ...newSprint,
+          projectId: Number(selectedProjectId)
+        })
+      });
+      if (res.ok) {
+        setNewSprint({ name: '', goal: '', startDate: '', endDate: '', status: 'Planned' });
+        setShowSprintModal(false);
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateSprintStatus = async (sprintId, status) => {
+    try {
+      const res = await fetch(`${API_BASE}/sprints/${sprintId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteSprint = async (sprintId) => {
+    if (!confirm("Bạn có chắc chắn muốn xóa Sprint này?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/sprints/${sprintId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Daily Standups
+  const handleCreateStandup = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/standups`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          ...myStandup,
+          projectId: Number(selectedProjectId),
+          date: new Date().toISOString().split('T')[0]
+        })
+      });
+      if (res.ok) {
+        setMyStandup({ completedWork: '', planToday: '', blockers: '' });
+        fetchCoreData();
+        alert("Check-in Standup hôm nay thành công!");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Lab Assets
+  const handleCreateAsset = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/assets`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(newAsset)
+      });
+      if (res.ok) {
+        setNewAsset({ name: '', serialNumber: '' });
+        setShowAssetModal(false);
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleLoanAsset = async (assetId) => {
+    try {
+      const res = await fetch(`${API_BASE}/asset-loans`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          assetId,
+          loanDate: new Date().toISOString().split('T')[0]
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert("Đăng ký mượn thiết bị thành công! Chờ Trưởng nhóm duyệt.");
+        fetchCoreData();
+      } else {
+        alert(data.message || "Lỗi mượn thiết bị.");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleApproveAssetLoan = async (loanId, status) => {
+    try {
+      const res = await fetch(`${API_BASE}/asset-loans/${loanId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Procurements (BOM)
+  const handleCreateProcurement = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/procurements`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          ...newProcurement,
+          projectId: Number(newProcurement.projectId || selectedProjectId),
+          quantity: Number(newProcurement.quantity),
+          estimatedPrice: Number(newProcurement.estimatedPrice)
+        })
+      });
+      if (res.ok) {
+        setNewProcurement({ projectId: '', departmentId: '1', itemName: '', url: '', quantity: '1', estimatedPrice: '0' });
+        setShowProcureModal(false);
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleApproveProcurement = async (procId, status) => {
+    try {
+      const res = await fetch(`${API_BASE}/procurements/${procId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteProcurement = async (procId) => {
+    if (!confirm("Bạn có chắc chắn muốn xóa đề xuất mua sắm này?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/procurements/${procId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Lab Bookings
+  const handleCreateBooking = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/lab-bookings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(newBooking)
+      });
+      if (res.ok) {
+        setNewBooking({ equipmentName: 'Máy in 3D Bambu Lab X1C', startTime: '', endTime: '' });
+        setShowBookingModal(false);
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteBooking = async (bookingId) => {
+    if (!confirm("Xóa lịch đặt chỗ này?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/lab-bookings/${bookingId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Failure Logs (Nhật ký lỗi)
+  const handleCreateFailure = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/failure-logs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          ...newFailure,
+          projectId: Number(newFailure.projectId || selectedProjectId),
+          departmentId: Number(newFailure.departmentId)
+        })
+      });
+      if (res.ok) {
+        setNewFailure({ title: '', description: '', solution: '', projectId: '', departmentId: '1' });
+        setShowFailureModal(false);
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteFailure = async (failureId) => {
+    if (!confirm("Xóa nhật ký lỗi này?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/failure-logs/${failureId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Firmware Releases
+  const handleCreateFirmware = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/firmware-releases`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          ...newFirmware,
+          projectId: Number(newFirmware.projectId || selectedProjectId)
+        })
+      });
+      if (res.ok) {
+        setNewFirmware({ projectId: '', version: '', pcbVersionCompatible: '', changelog: '' });
+        setShowFirmwareModal(false);
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Project Links
+  const handleCreateLink = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/project-links`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          ...newLink,
+          projectId: Number(newLink.projectId || selectedProjectId)
+        })
+      });
+      if (res.ok) {
+        setNewLink({ projectId: '', label: '', url: '', description: '' });
+        setShowLinkModal(false);
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteLink = async (linkId) => {
+    if (!confirm("Xóa liên kết tài nguyên này?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/project-links/${linkId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Wiki Pages
+  const handleCreateWiki = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/wiki-pages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(newWiki)
+      });
+      if (res.ok) {
+        setNewWiki({ title: '', contentMarkdown: '' });
+        setShowWikiModal(false);
+        fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Project Inheritance
+  const handleInheritProject = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/projects/${selectedProjectId}/inherit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          ...inheritForm,
+          sourceProjectId: Number(inheritForm.sourceProjectId)
+        })
+      });
+      if (res.ok) {
+        alert("Kế thừa dữ liệu dự án thành công!");
+        setShowInheritModal(false);
+        fetchCoreData();
+      } else {
+        const data = await res.json();
+        alert(data.message || "Lỗi kế thừa.");
       }
     } catch (err) {
       console.error(err);
@@ -774,7 +1305,23 @@ export default function App() {
             </li>
             <li className={`sidebar-item ${activeTab === 'projects' ? 'active' : ''}`} onClick={() => setActiveTab('projects')}>
               <FolderKanban size={20} />
-              <span>Dự án & Task</span>
+              <span>Dự án & Sprints</span>
+            </li>
+            <li className={`sidebar-item ${activeTab === 'standup' ? 'active' : ''}`} onClick={() => setActiveTab('standup')}>
+              <Activity size={20} />
+              <span>Daily Standup</span>
+            </li>
+            <li className={`sidebar-item ${activeTab === 'lab' ? 'active' : ''}`} onClick={() => setActiveTab('lab')}>
+              <Boxes size={20} />
+              <span>Phòng Lab & Thiết bị</span>
+            </li>
+            <li className={`sidebar-item ${activeTab === 'procurements' ? 'active' : ''}`} onClick={() => setActiveTab('procurements')}>
+              <ShoppingCart size={20} />
+              <span>Yêu cầu Mua sắm</span>
+            </li>
+            <li className={`sidebar-item ${activeTab === 'wiki' ? 'active' : ''}`} onClick={() => setActiveTab('wiki')}>
+              <BookOpen size={20} />
+              <span>Wiki & Nhật ký lỗi</span>
             </li>
             <li className={`sidebar-item ${activeTab === 'reports' ? 'active' : ''}`} onClick={() => setActiveTab('reports')}>
               <FileText size={20} />
@@ -1185,112 +1732,160 @@ export default function App() {
         {/* 2. PROJECTS & TASKS TAB */}
         {activeTab === 'projects' && (
           <div className="animate-fade-in">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <div>
-                <h2>Quản lý Dự án & Đầu mục công việc</h2>
-                <p style={{ color: 'var(--text-secondary)' }}>Xem danh sách các dự án đang triển khai và giao việc cho nhân sự.</p>
+                <h2>Bảng công việc Kanban & Sprints</h2>
+                <p style={{ color: 'var(--text-secondary)' }}>Chọn dự án và quản lý quy trình phát triển sản phẩm Agile.</p>
               </div>
-              {(user.role === 'admin' || user.role === 'leader') && (
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <button className="btn btn-secondary" onClick={() => setShowTaskModal(true)}>
-                    <Plus size={16} />
-                    Tạo Công việc mới
-                  </button>
-                  <button className="btn btn-primary" onClick={() => setShowProjectModal(true)}>
-                    <Plus size={16} />
-                    Tạo Dự án mới
-                  </button>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                {(user.role === 'admin' || user.role === 'leader') && (
+                  <>
+                    <button className="btn btn-secondary" onClick={() => setShowSprintModal(true)}>
+                      <Plus size={16} />
+                      Thêm Sprint
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => setShowInheritModal(true)}>
+                      <Layers size={16} />
+                      Kế thừa dự án
+                    </button>
+                    <button className="btn btn-primary" onClick={() => setShowTaskModal(true)}>
+                      <Plus size={16} />
+                      Thêm Task
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Project & Sprint selection bar */}
+            <div className="glass-card" style={{ padding: '16px 24px', display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Dự án:</span>
+                <select
+                  className="input-field"
+                  style={{ width: '220px', padding: '6px 12px' }}
+                  value={selectedProjectId}
+                  onChange={e => {
+                    setSelectedProjectId(e.target.value);
+                    setSelectedSprintId(''); // Reset selected sprint
+                  }}
+                >
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Sprint:</span>
+                <select
+                  className="input-field"
+                  style={{ width: '220px', padding: '6px 12px' }}
+                  value={selectedSprintId}
+                  onChange={e => setSelectedSprintId(e.target.value)}
+                >
+                  <option value="">Tất cả / Backlog</option>
+                  {sprints.filter(s => s.projectId === Number(selectedProjectId)).map(s => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.status})</option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedSprintId && (user.role === 'admin' || user.role === 'leader') && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleUpdateSprintStatus(Number(selectedSprintId), 'Active')}>Chạy Sprint</button>
+                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleUpdateSprintStatus(Number(selectedSprintId), 'Completed')}>Hoàn thành</button>
+                  <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#ef4444' }} onClick={() => handleDeleteSprint(Number(selectedSprintId))}>Xóa</button>
                 </div>
               )}
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-              {projects.map(proj => {
-                const projTasks = tasks.filter(t => t.projectId === proj.id);
-                const avgProgress = projTasks.length > 0
-                  ? Math.round(projTasks.reduce((acc, curr) => acc + curr.progress, 0) / projTasks.length)
-                  : 0;
+            {/* Department filters */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '12px' }}>
+              {departments.map(d => (
+                <button
+                  key={d.id}
+                  className={`btn ${activeDeptTab === d.id.toString() ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                  onClick={() => setActiveDeptTab(d.id.toString())}
+                >
+                  {d.name}
+                </button>
+              ))}
+            </div>
+
+            {/* Kanban Board Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', alignItems: 'start' }}>
+              {['Backlog', 'To Do', 'In Progress', 'Review', 'Done'].map(colName => {
+                // Filter tasks for this column
+                const colTasks = tasks.filter(t => {
+                  if (t.projectId !== Number(selectedProjectId)) return false;
+                  if (t.departmentId !== Number(activeDeptTab)) return false;
+                  
+                  // Backlog column shows: tasks with status 'Backlog', OR tasks with no sprintId when 'Tất cả / Backlog' is selected
+                  if (colName === 'Backlog') {
+                    return t.status === 'Backlog' || (!t.sprintId && !selectedSprintId);
+                  }
+                  
+                  // Filter by selected sprint (if any)
+                  if (selectedSprintId && t.sprintId !== Number(selectedSprintId)) return false;
+                  
+                  return t.status === colName;
+                });
 
                 return (
-                  <div key={proj.id} className="glass-card" style={{ padding: '28px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-glass)', paddingBottom: '16px', marginBottom: '20px' }}>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <h3 style={{ fontSize: '1.4rem' }}>{proj.name}</h3>
-                          <span className={`badge badge-${proj.status === 'Active' ? 'active' : 'done'}`}>{proj.status}</span>
-                        </div>
-                        <p style={{ color: 'var(--text-secondary)', marginTop: '6px', fontSize: '0.9rem', maxWidth: '800px' }}>{proj.description}</p>
-                      </div>
-
-                      <div style={{ textAlign: 'right', minWidth: '150px' }}>
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Tiến độ tổng thể</span>
-                        <div className="progress-container" style={{ marginTop: '4px' }}>
-                          <div className="progress-bar-bg">
-                            <div className="progress-bar-fill" style={{ width: `${avgProgress}%` }} />
-                          </div>
-                          <span className="progress-text">{avgProgress}%</span>
-                        </div>
-                      </div>
+                  <div key={colName} className="glass-card" style={{ padding: '16px', background: 'rgba(255,255,255,0.01)', minHeight: '500px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '2px solid rgba(255,255,255,0.06)', paddingBottom: '8px' }}>
+                      <h4 style={{ fontSize: '0.9rem', fontWeight: 700 }}>{colName.toUpperCase()}</h4>
+                      <span className="badge badge-low" style={{ fontSize: '0.75rem' }}>{colTasks.length}</span>
                     </div>
 
-                    {/* Task list for this project */}
-                    <div>
-                      <h4 style={{ fontSize: '0.95rem', color: 'var(--text-secondary)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        Danh sách task ({projTasks.length})
-                      </h4>
-                      {projTasks.length === 0 ? (
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic', padding: '10px 0' }}>Chưa có công việc nào được gán cho dự án này.</p>
-                      ) : (
-                        <div style={{ overflowX: 'auto' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem', textAlign: 'left' }}>
-                            <thead>
-                              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                                <th style={{ padding: '12px 8px' }}>Tên công việc</th>
-                                <th style={{ padding: '12px 8px' }}>Người thực hiện</th>
-                                <th style={{ padding: '12px 8px' }}>Độ ưu tiên</th>
-                                <th style={{ padding: '12px 8px' }}>Hạn chót</th>
-                                <th style={{ padding: '12px 8px', width: '200px' }}>Tiến độ</th>
-                                <th style={{ padding: '12px 8px' }}>Trạng thái</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {projTasks.map(t => {
-                                const assigneeName = usersList.find(u => u.id === t.assigneeId)?.fullName || 'Không xác định';
-                                const isOverdue = new Date(t.deadline) < new Date() && t.status !== 'Done';
-                                return (
-                                  <tr key={t.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', color: '#e5e7eb' }}>
-                                    <td style={{ padding: '14px 8px', fontWeight: 600 }}>
-                                      <div>{t.title}</div>
-                                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 400, marginTop: '2px' }}>{t.description}</div>
-                                    </td>
-                                    <td style={{ padding: '14px 8px' }}>{assigneeName}</td>
-                                    <td style={{ padding: '14px 8px' }}>
-                                      <span className={`badge badge-${t.priority.toLowerCase()}`}>{t.priority}</span>
-                                    </td>
-                                    <td style={{ padding: '14px 8px', color: isOverdue ? 'var(--status-overdue)' : '#fff', fontWeight: isOverdue ? 700 : 400 }}>
-                                      {t.deadline} {isOverdue && '(Quá hạn)'}
-                                    </td>
-                                    <td style={{ padding: '14px 8px' }}>
-                                      {/* Slider progress or text */}
-                                      <div className="progress-container">
-                                        <div className="progress-bar-bg" style={{ height: '6px' }}>
-                                          <div className="progress-bar-fill" style={{ width: `${t.progress}%` }} />
-                                        </div>
-                                        <span className="progress-text" style={{ fontSize: '0.8rem' }}>{t.progress}%</span>
-                                      </div>
-                                    </td>
-                                    <td style={{ padding: '14px 8px' }}>
-                                      <span className={`badge badge-${t.status === 'Done' ? 'done' : isOverdue ? 'overdue' : 'active'}`}>
-                                        {t.status === 'Done' ? 'Hoàn thành' : t.status === 'Active' ? 'Đang chạy' : 'Mới'}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {colTasks.map(t => {
+                        const assignee = usersList.find(u => u.id === t.assigneeId);
+                        return (
+                          <div
+                            key={t.id}
+                            className="goal-item animate-fade-in"
+                            style={{
+                              background: 'rgba(17, 24, 39, 0.7)',
+                              border: t.priority === 'High' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-glass)',
+                              padding: '12px',
+                              cursor: 'pointer'
+                            }}
+                            onClick={() => setEditingTask(t)}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                              <span className={`badge badge-${t.priority.toLowerCase()}`} style={{ fontSize: '0.65rem', padding: '2px 6px' }}>{t.priority}</span>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.estimate || 0}h</span>
+                            </div>
+                            
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '6px', color: '#fff' }}>{t.title}</div>
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px', lineClamp: 2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                              {t.description}
+                            </p>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: 'var(--text-muted)', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '6px' }}>
+                              <span>@{assignee ? assignee.fullName : 'Chưa gán'}</span>
+                              <span>Hạn: {t.dueDate || 'Không'}</span>
+                            </div>
+
+                            {/* Dropdown status update */}
+                            <div style={{ marginTop: '8px', display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
+                              <select
+                                className="input-field"
+                                style={{ padding: '2px 4px', fontSize: '0.7rem', background: 'rgba(255,255,255,0.05)', border: 'none' }}
+                                value={t.status}
+                                onChange={e => handleUpdateTaskFull(t.id, { status: e.target.value })}
+                              >
+                                <option value="Backlog">Backlog</option>
+                                <option value="To Do">To Do</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Review">Review</option>
+                                <option value="Done">Done</option>
+                              </select>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -1397,7 +1992,7 @@ export default function App() {
                     <div style={{ padding: '16px', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '12px' }}>
                       <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <AlertCircle size={16} style={{ color: 'var(--accent-primary)' }} />
-                        TỔNG HỢPÝ CHÍNH
+                        TỔNG HỢP Ý CHÍNH
                       </div>
                       <p style={{ fontSize: '0.85rem', color: '#d1d5db', whiteSpace: 'pre-line', lineHeight: '1.6' }}>
                         {weeklySummary.synthesizedOverview}
@@ -1458,6 +2053,377 @@ export default function App() {
                 )}
               </div>
 
+            </div>
+          </div>
+        )}
+
+        {/* 2.1. STANDUP TAB */}
+        {activeTab === 'standup' && (
+          <div className="animate-fade-in">
+            <h2>Daily Standup Check-in</h2>
+            <p style={{ color: 'var(--text-secondary)' }}>Báo cáo công việc nhanh hàng ngày và theo dõi tiến độ của cả nhóm R&D.</p>
+            
+            <div className="dashboard-grid" style={{ marginTop: '24px' }}>
+              {/* Form checkin */}
+              <div className="glass-card" style={{ padding: '24px' }}>
+                <h3 style={{ marginBottom: '20px' }}>Check-in hôm nay</h3>
+                <form onSubmit={handleCreateStandup} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div>
+                    <label className="input-label">Dự án hiện tại</label>
+                    <select className="input-field" value={selectedProjectId} onChange={e => setSelectedProjectId(e.target.value)}>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="input-label">Việc đã hoàn thành hôm qua</label>
+                    <textarea className="input-field" style={{ height: '80px', resize: 'vertical' }} placeholder="Layout xong nguồn, test mạch chạy ổn..." value={myStandup.completedWork} onChange={e => setMyStandup({ ...myStandup, completedWork: e.target.value })} required />
+                  </div>
+                  <div>
+                    <label className="input-label">Kế hoạch công việc hôm nay</label>
+                    <textarea className="input-field" style={{ height: '80px', resize: 'vertical' }} placeholder="Đi dây đường bus tín hiệu vi điều khiển..." value={myStandup.planToday} onChange={e => setMyStandup({ ...myStandup, planToday: e.target.value })} required />
+                  </div>
+                  <div>
+                    <label className="input-label">Khó khăn / Vướng mắc (nếu có)</label>
+                    <input type="text" className="input-field" placeholder="Mỏ hàn bị hỏng, linh kiện IC nguồn về chậm..." value={myStandup.blockers} onChange={e => setMyStandup({ ...myStandup, blockers: e.target.value })} />
+                  </div>
+                  <button type="submit" className="btn btn-primary" style={{ padding: '12px' }}>Gửi Check-in</button>
+                </form>
+              </div>
+
+              {/* Dòng thời gian standup */}
+              <div className="glass-card" style={{ padding: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <h3>Tiến độ cả đội</h3>
+                  <input type="date" className="input-field" style={{ width: '160px', padding: '6px 12px' }} value={selectedStandupDate} onChange={e => setSelectedStandupDate(e.target.value)} />
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '450px', overflowY: 'auto' }}>
+                  {standupsList.filter(s => s.date === selectedStandupDate && s.projectId === Number(selectedProjectId)).length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>Chưa có ai check-in cho ngày này.</div>
+                  ) : (
+                    standupsList.filter(s => s.date === selectedStandupDate && s.projectId === Number(selectedProjectId)).map(s => {
+                      const member = usersList.find(u => u.id === s.userId);
+                      const deptName = departments.find(d => d.id === member?.departmentId)?.name || 'Chưa phân phòng';
+                      return (
+                        <div key={s.id} style={{ padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                            <span style={{ fontWeight: 700 }}>{member ? member.fullName : 'Thành viên'} <span style={{ fontWeight: 400, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>({deptName})</span></span>
+                          </div>
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                            <div style={{ marginBottom: '4px' }}>📌 <strong>Đã làm:</strong> {s.completedWork}</div>
+                            <div style={{ marginBottom: '4px' }}>🚀 <strong>Kế hoạch:</strong> {s.planToday}</div>
+                            {s.blockers && s.blockers !== 'Không có' && (
+                              <div style={{ color: 'var(--status-overdue)', fontWeight: 600 }}>⚠️ <strong>Nghẽn:</strong> {s.blockers}</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 2.2. LAB ASSETS & BOOKING TAB */}
+        {activeTab === 'lab' && (
+          <div className="animate-fade-in">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <div>
+                <h2>Thiết bị Lab & Đặt lịch mượn</h2>
+                <p style={{ color: 'var(--text-secondary)' }}>Đăng ký mượn máy đo, mỏ nạp và đặt khung giờ in 3D / đo EMC.</p>
+              </div>
+              {(user.role === 'admin' || user.role === 'leader') && (
+                <button className="btn btn-primary" onClick={() => setShowAssetModal(true)}>
+                  <Plus size={16} />
+                  Thêm thiết bị Lab
+                </button>
+              )}
+            </div>
+
+            <div className="dashboard-grid">
+              {/* Assets list */}
+              <div className="glass-card" style={{ padding: '24px' }}>
+                <h3 style={{ marginBottom: '16px' }}>Kho thiết bị Lab</h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}>
+                      <th style={{ padding: '10px' }}>Tên thiết bị</th>
+                      <th style={{ padding: '10px' }}>Serial Number</th>
+                      <th style={{ padding: '10px' }}>Trạng thái</th>
+                      <th style={{ padding: '10px' }}>Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {assetsList.map(asset => {
+                      const activeLoan = assetLoansList.find(al => al.assetId === asset.id && al.status !== 'Returned');
+                      const borrower = activeLoan ? usersList.find(u => u.id === activeLoan.userId) : null;
+                      return (
+                        <tr key={asset.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                          <td style={{ padding: '12px 10px', fontWeight: 600 }}>{asset.name}</td>
+                          <td style={{ padding: '12px 10px' }}>{asset.serialNumber}</td>
+                          <td style={{ padding: '12px 10px' }}>
+                            <span className={`badge badge-${asset.status === 'Available' ? 'done' : 'active'}`}>
+                              {asset.status === 'Available' ? 'Sẵn sàng' : `Bận (Mượn bởi ${borrower ? borrower.fullName : '...' })`}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 10px' }}>
+                            {asset.status === 'Available' ? (
+                              <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.8rem' }} onClick={() => handleLoanAsset(asset.id)}>Mượn</button>
+                            ) : (
+                              activeLoan && (user.role === 'admin' || user.role === 'leader' || activeLoan.userId === user.id) && (
+                                <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '0.8rem', background: '#10b981' }} onClick={() => handleApproveAssetLoan(activeLoan.id, 'Returned')}>Trả thiết bị</button>
+                              )
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                {/* Pending Loans (for Leader/Admin review) */}
+                {(user.role === 'admin' || user.role === 'leader') && assetLoansList.filter(l => l.status === 'Pending').length > 0 && (
+                  <div style={{ marginTop: '24px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '16px' }}>
+                    <h4 style={{ color: 'var(--status-active)', marginBottom: '12px' }}>Đơn mượn chờ duyệt ({assetLoansList.filter(l => l.status === 'Pending').length})</h4>
+                    {assetLoansList.filter(l => l.status === 'Pending').map(loan => {
+                      const ast = assetsList.find(a => a.id === loan.assetId);
+                      const requester = usersList.find(u => u.id === loan.userId);
+                      return (
+                        <div key={loan.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '10px 14px', borderRadius: '8px', marginBottom: '10px' }}>
+                          <div>
+                            <strong>{requester ? requester.fullName : 'Thành viên'}</strong> yêu cầu mượn <strong>{ast ? ast.name : 'Thiết bị'}</strong>
+                          </div>
+                          <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '0.8rem', background: '#10b981' }} onClick={() => handleApproveAssetLoan(loan.id, 'Approved')}>Duyệt mượn</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Lab Booking Timeline */}
+              <div className="glass-card" style={{ padding: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3>Lịch đặt chỗ thiết bị</h3>
+                  <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '0.85rem' }} onClick={() => setShowBookingModal(true)}>
+                    <Plus size={14} />
+                    Đặt chỗ
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflowY: 'auto' }}>
+                  {bookingsList.map(bk => {
+                    const booker = usersList.find(u => u.id === bk.userId);
+                    const isOwner = bk.userId === user.id || user.role === 'admin' || user.role === 'leader';
+                    return (
+                      <div key={bk.id} className="goal-item" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '0.9rem' }}>{bk.equipmentName}</strong>
+                          {isOwner && (
+                            <button className="btn" style={{ padding: '2px', background: 'transparent', color: 'var(--text-muted)' }} onClick={() => handleDeleteBooking(bk.id)}>
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          <div>👤 Người đặt: {booker ? booker.fullName : 'Thành viên'}</div>
+                          <div>⏰ Bắt đầu: {new Date(bk.startTime).toLocaleString('vi-VN')}</div>
+                          <div>⏰ Kết thúc: {new Date(bk.endTime).toLocaleString('vi-VN')}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 2.3. PROCUREMENT TAB */}
+        {activeTab === 'procurements' && (
+          <div className="animate-fade-in">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <div>
+                <h2>Yêu cầu Mua sắm Linh kiện (BOM Procurement)</h2>
+                <p style={{ color: 'var(--text-secondary)' }}>Quản lý việc đề xuất linh kiện mẫu từ Digikey/Mouser phục vụ R&D.</p>
+              </div>
+              <button className="btn btn-primary" onClick={() => setShowProcureModal(true)}>
+                <Plus size={16} />
+                Đề xuất Linh kiện
+              </button>
+            </div>
+
+            <div className="glass-card" style={{ padding: '24px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    <th style={{ padding: '12px' }}>Tên linh kiện</th>
+                    <th style={{ padding: '12px' }}>Dự án / Phòng</th>
+                    <th style={{ padding: '12px' }}>Số lượng</th>
+                    <th style={{ padding: '12px' }}>Đơn giá ước tính</th>
+                    <th style={{ padding: '12px' }}>Tổng chi phí</th>
+                    <th style={{ padding: '12px' }}>Người yêu cầu</th>
+                    <th style={{ padding: '12px' }}>Trạng thái</th>
+                    <th style={{ padding: '12px' }}>Hành động</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {procurementsList.map(proc => {
+                    const reqUser = usersList.find(u => u.id === proc.userId);
+                    const proj = projects.find(p => p.id === proc.projectId);
+                    const dept = departments.find(d => d.id === proc.departmentId);
+                    return (
+                      <tr key={proc.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                        <td style={{ padding: '14px 12px' }}>
+                          <div style={{ fontWeight: 600 }}>{proc.itemName}</div>
+                          {proc.url && <a href={proc.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', textDecoration: 'underline' }}>Link linh kiện</a>}
+                        </td>
+                        <td style={{ padding: '14px 12px' }}>
+                          <div>{proj ? proj.code : 'N/A'}</div>
+                          <span className="dept-tag" style={{ fontSize: '0.7rem' }}>{dept ? dept.name : 'Chưa phân'}</span>
+                        </td>
+                        <td style={{ padding: '14px 12px' }}>x{proc.quantity}</td>
+                        <td style={{ padding: '14px 12px' }}>{proc.estimatedPrice.toLocaleString()} đ</td>
+                        <td style={{ padding: '14px 12px', fontWeight: 700 }}>{(proc.quantity * proc.estimatedPrice).toLocaleString()} đ</td>
+                        <td style={{ padding: '14px 12px' }}>{reqUser ? reqUser.fullName : '...'}</td>
+                        <td style={{ padding: '14px 12px' }}>
+                          <span className={`badge badge-${proc.status === 'Approved' || proc.status === 'Received' ? 'done' : proc.status === 'Pending' ? 'active' : 'overdue'}`}>
+                            {proc.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px 12px' }}>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            {proc.status === 'Pending' && (user.role === 'admin' || user.role === 'leader') && (
+                              <>
+                                <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#10b981' }} onClick={() => handleApproveProcurement(proc.id, 'Approved')}>Duyệt</button>
+                                <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#ef4444' }} onClick={() => handleDeleteProcurement(proc.id)}>Từ chối</button>
+                              </>
+                            )}
+                            {proc.status === 'Approved' && (user.role === 'admin' || user.role === 'leader') && (
+                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleApproveProcurement(proc.id, 'Ordered')}>Đã Đặt Hàng</button>
+                            )}
+                            {proc.status === 'Ordered' && (proc.userId === user.id || user.role === 'admin' || user.role === 'leader') && (
+                              <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#10b981' }} onClick={() => handleApproveProcurement(proc.id, 'Received')}>Đã Về Kho</button>
+                            )}
+                            {(proc.userId === user.id || user.role === 'admin') && (
+                              <button className="btn" style={{ padding: '4px', background: 'transparent', color: 'var(--text-muted)' }} onClick={() => handleDeleteProcurement(proc.id)}>
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* 2.4. WIKI & KNOWLEDGE TAB */}
+        {activeTab === 'wiki' && (
+          <div className="animate-fade-in">
+            <h2>Kho Tri Thức & Kiểm Soát Chất Lượng R&D</h2>
+            <p style={{ color: 'var(--text-secondary)' }}>Chia sẻ tài liệu kỹ thuật, lưu trữ lịch sử sửa lỗi và lưu phiên bản firmware build.</p>
+
+            <div className="dashboard-grid" style={{ marginTop: '24px', gridTemplateColumns: '200px 1fr' }}>
+              {/* Left navigation */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button className="btn btn-secondary" style={{ width: '100%', justifyContent: 'flex-start', background: 'rgba(255,255,255,0.02)' }} onClick={() => setShowWikiModal(true)}>+ Thêm Wiki</button>
+                <button className="btn btn-secondary" style={{ width: '100%', justifyContent: 'flex-start', background: 'rgba(255,255,255,0.02)' }} onClick={() => setShowFailureModal(true)}>+ Thêm Nhật ký Lỗi</button>
+                <button className="btn btn-secondary" style={{ width: '100%', justifyContent: 'flex-start', background: 'rgba(255,255,255,0.02)' }} onClick={() => setShowFirmwareModal(true)}>+ Release Firmware</button>
+                <button className="btn btn-secondary" style={{ width: '100%', justifyContent: 'flex-start', background: 'rgba(255,255,255,0.02)' }} onClick={() => setShowLinkModal(true)}>+ Thêm Link Tài nguyên</button>
+              </div>
+
+              {/* Right page content */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+                {/* 1. Setup wiki list */}
+                <div className="glass-card" style={{ padding: '24px' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}><BookOpen size={20} /> Hướng dẫn Setup & Onboarding</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {wikiPagesList.map(page => (
+                      <div key={page.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', paddingBottom: '12px' }}>
+                        <h4 style={{ fontWeight: 700, color: '#fff' }}>{page.title}</h4>
+                        <pre style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px', overflowX: 'auto', marginTop: '6px', fontFamily: 'monospace' }}>{page.contentMarkdown}</pre>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '6px' }}>Cập nhật lần cuối ngày {page.updatedAt}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. Failure Logs */}
+                <div className="glass-card" style={{ padding: '24px' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}><Bug size={20} style={{ color: 'var(--status-overdue)' }} /> Nhật ký Lỗi & Khắc phục</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {failureLogsList.map(log => {
+                      const proj = projects.find(p => p.id === log.projectId);
+                      return (
+                        <div key={log.id} style={{ border: '1px solid rgba(239, 68, 68, 0.2)', padding: '16px', borderRadius: '12px', background: 'rgba(239, 68, 68, 0.01)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h4 style={{ fontWeight: 700, color: '#fca5a5' }}>{log.title}</h4>
+                            <button className="btn" style={{ padding: '2px', background: 'transparent', color: 'var(--text-muted)' }} onClick={() => handleDeleteFailure(log.id)}>
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>Dự án: {proj ? proj.name : 'Tất cả'}</div>
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                            <div style={{ marginBottom: '4px' }}>🔴 <strong>Mô tả lỗi:</strong> {log.description}</div>
+                            <div style={{ color: '#a7f3d0' }}>🟢 <strong>Giải pháp xử lý:</strong> {log.solution}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 3. Firmware Release */}
+                <div className="glass-card" style={{ padding: '24px' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}><Cpu size={20} style={{ color: '#10b981' }} /> Kho Firmware Releases</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {firmwareReleasesList.map(release => {
+                      const proj = projects.find(p => p.id === release.projectId);
+                      return (
+                        <div key={release.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.04)', paddingBottom: '12px' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <strong style={{ color: '#fff', fontSize: '1rem' }}>{release.version}</strong>
+                              <span className="badge badge-done" style={{ fontSize: '0.7rem' }}>Tương thích: {release.pcbVersionCompatible}</span>
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Dự án: {proj ? proj.name : 'N/A'} | Release: {release.releaseDate}</div>
+                            <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '6px' }}>📝 {release.changelog}</p>
+                          </div>
+                          <a href="#" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={e => { e.preventDefault(); alert('Tải file build local: ' + release.filePath); }}>Tải file .BIN</a>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 4. Project Resource Links */}
+                <div className="glass-card" style={{ padding: '24px' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}><Link size={20} /> Liên kết Tài nguyên Thiết kế</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+                    {projectLinksList.map(lnk => {
+                      const proj = projects.find(p => p.id === lnk.projectId);
+                      return (
+                        <div key={lnk.id} style={{ padding: '14px', border: '1px solid var(--border-glass)', borderRadius: '12px', background: 'rgba(255,255,255,0.01)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--accent-primary)', textTransform: 'uppercase', fontWeight: 700 }}>{proj ? proj.code : 'LINK'}</div>
+                            <a href={lnk.url} target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: '#fff', textDecoration: 'underline', fontSize: '0.9rem' }}>{lnk.label}</a>
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>{lnk.description}</p>
+                          </div>
+                          <button className="btn" style={{ padding: '4px', background: 'transparent', color: 'var(--text-muted)' }} onClick={() => handleDeleteLink(lnk.id)}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1710,13 +2676,39 @@ export default function App() {
                 <label className="input-label">Thuộc Dự án</label>
                 <select
                   className="input-field"
-                  value={newTask.projectId}
+                  value={newTask.projectId || selectedProjectId}
                   onChange={e => setNewTask(prev => ({ ...prev, projectId: e.target.value }))}
                   required
                 >
                   <option value="">-- Chọn dự án --</option>
                   {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Sprint</label>
+                  <select
+                    className="input-field"
+                    value={newTask.sprintId}
+                    onChange={e => setNewTask(prev => ({ ...prev, sprintId: e.target.value }))}
+                  >
+                    <option value="">-- Không thuộc Sprint --</option>
+                    {sprints.filter(s => s.projectId === Number(newTask.projectId || selectedProjectId)).map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Phòng chuyên môn</label>
+                  <select
+                    className="input-field"
+                    value={newTask.departmentId}
+                    onChange={e => setNewTask(prev => ({ ...prev, departmentId: e.target.value }))}
+                    required
+                  >
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
               </div>
               <div>
                 <label className="input-label">Tên công việc</label>
@@ -1739,17 +2731,28 @@ export default function App() {
                   onChange={e => setNewTask(prev => ({ ...prev, description: e.target.value }))}
                 />
               </div>
-              <div>
-                <label className="input-label">Giao cho nhân viên</label>
-                <select
-                  className="input-field"
-                  value={newTask.assigneeId}
-                  onChange={e => setNewTask(prev => ({ ...prev, assigneeId: e.target.value }))}
-                  required
-                >
-                  <option value="">-- Chọn nhân sự --</option>
-                  {usersList.map(u => <option key={u.id} value={u.id}>{u.fullName} (@{u.username})</option>)}
-                </select>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Giao cho nhân viên</label>
+                  <select
+                    className="input-field"
+                    value={newTask.assigneeId}
+                    onChange={e => setNewTask(prev => ({ ...prev, assigneeId: e.target.value }))}
+                    required
+                  >
+                    <option value="">-- Chọn nhân sự --</option>
+                    {usersList.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Ước lượng thời gian (giờ)</label>
+                  <input
+                    type="number"
+                    className="input-field"
+                    value={newTask.estimate}
+                    onChange={e => setNewTask(prev => ({ ...prev, estimate: e.target.value }))}
+                  />
+                </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
@@ -1757,8 +2760,8 @@ export default function App() {
                   <input
                     type="date"
                     className="input-field"
-                    value={newTask.deadline}
-                    onChange={e => setNewTask(prev => ({ ...prev, deadline: e.target.value }))}
+                    value={newTask.dueDate}
+                    onChange={e => setNewTask(prev => ({ ...prev, dueDate: e.target.value }))}
                     required
                   />
                 </div>
@@ -1775,9 +2778,645 @@ export default function App() {
                   </select>
                 </div>
               </div>
+              <div>
+                <label className="input-label">Task cha (nếu là Sub-task)</label>
+                <select
+                  className="input-field"
+                  value={newTask.parentTaskId}
+                  onChange={e => setNewTask(prev => ({ ...prev, parentTaskId: e.target.value }))}
+                >
+                  <option value="">-- Không (Đây là Task chính) --</option>
+                  {tasks.filter(t => t.projectId === Number(newTask.projectId || selectedProjectId) && !t.parentTaskId).map(t => (
+                    <option key={t.id} value={t.id}>{t.title}</option>
+                  ))}
+                </select>
+              </div>
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowTaskModal(false)}>Hủy</button>
                 <button type="submit" className="btn btn-primary">Giao việc</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Editing Task Modal (Allows Edit & Delete) */}
+      {editingTask && (
+        <div className="modal-overlay" onClick={() => setEditingTask(null)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3>Chi tiết & Chỉnh sửa Task</h3>
+              <button className="btn btn-danger" style={{ background: '#ef4444', padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleDeleteTask(editingTask.id)}>Xóa Task</button>
+            </div>
+            <form onSubmit={e => {
+              e.preventDefault();
+              handleUpdateTaskFull(editingTask.id, editingTask);
+            }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="input-label">Tên công việc</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={editingTask.title}
+                  onChange={e => setEditingTask({ ...editingTask, title: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Mô tả chi tiết</label>
+                <textarea
+                  className="input-field"
+                  rows="3"
+                  value={editingTask.description}
+                  onChange={e => setEditingTask({ ...editingTask, description: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Sprint</label>
+                  <select
+                    className="input-field"
+                    value={editingTask.sprintId || ''}
+                    onChange={e => setEditingTask({ ...editingTask, sprintId: e.target.value ? Number(e.target.value) : null })}
+                  >
+                    <option value="">-- Không thuộc Sprint --</option>
+                    {sprints.filter(s => s.projectId === editingTask.projectId).map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Phòng chuyên môn</label>
+                  <select
+                    className="input-field"
+                    value={editingTask.departmentId}
+                    onChange={e => setEditingTask({ ...editingTask, departmentId: Number(e.target.value) })}
+                    required
+                  >
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Giao cho</label>
+                  <select
+                    className="input-field"
+                    value={editingTask.assigneeId}
+                    onChange={e => setEditingTask({ ...editingTask, assigneeId: Number(e.target.value) })}
+                    required
+                  >
+                    {usersList.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Ước lượng thời gian (giờ)</label>
+                  <input
+                    type="number"
+                    className="input-field"
+                    value={editingTask.estimate || 0}
+                    onChange={e => setEditingTask({ ...editingTask, estimate: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Hạn hoàn thành</label>
+                  <input
+                    type="date"
+                    className="input-field"
+                    value={editingTask.dueDate || ''}
+                    onChange={e => setEditingTask({ ...editingTask, dueDate: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="input-label">Trạng thái</label>
+                  <select
+                    className="input-field"
+                    value={editingTask.status}
+                    onChange={e => setEditingTask({ ...editingTask, status: e.target.value })}
+                  >
+                    <option value="Backlog">Backlog</option>
+                    <option value="To Do">To Do</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Review">Review</option>
+                    <option value="Done">Done</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setEditingTask(null)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Cập nhật Task</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Sprint Modal */}
+      {showSprintModal && (
+        <div className="modal-overlay" onClick={() => setShowSprintModal(false)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Tạo Sprint mới</h3>
+            <form onSubmit={handleCreateSprint} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="input-label">Tên Sprint</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="Ví dụ: Sprint 1 - Core hardware schematic"
+                  value={newSprint.name}
+                  onChange={e => setNewSprint({ ...newSprint, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Mục tiêu Sprint</label>
+                <textarea
+                  className="input-field"
+                  rows="2"
+                  placeholder="Mục tiêu cốt lõi của sprint..."
+                  value={newSprint.goal}
+                  onChange={e => setNewSprint({ ...newSprint, goal: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Ngày bắt đầu</label>
+                  <input
+                    type="date"
+                    className="input-field"
+                    value={newSprint.startDate}
+                    onChange={e => setNewSprint({ ...newSprint, startDate: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="input-label">Ngày kết thúc</label>
+                  <input
+                    type="date"
+                    className="input-field"
+                    value={newSprint.endDate}
+                    onChange={e => setNewSprint({ ...newSprint, endDate: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowSprintModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Tạo Sprint</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Asset Modal */}
+      {showAssetModal && (
+        <div className="modal-overlay" onClick={() => setShowAssetModal(false)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Thêm Thiết bị Lab</h3>
+            <form onSubmit={handleCreateAsset} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="input-label">Tên thiết bị</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="Ví dụ: Máy hàn Weller WT1010..."
+                  value={newAsset.name}
+                  onChange={e => setNewAsset({ ...newAsset, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Số Serial (S/N)</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="SN-987654321..."
+                  value={newAsset.serialNumber}
+                  onChange={e => setNewAsset({ ...newAsset, serialNumber: e.target.value })}
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowAssetModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Thêm thiết bị</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Procurement Modal */}
+      {showProcureModal && (
+        <div className="modal-overlay" onClick={() => setShowProcureModal(false)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Đề xuất Linh kiện mẫu (BOM)</h3>
+            <form onSubmit={handleCreateProcurement} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="input-label">Tên linh kiện & Mã (MPN)</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="IC nguồn TI LM2596S-ADJ, Điện trở 0603..."
+                  value={newProcurement.itemName}
+                  onChange={e => setNewProcurement({ ...newProcurement, itemName: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Đường dẫn đặt hàng (Mouser/Digikey/Taobao)</label>
+                <input
+                  type="url"
+                  className="input-field"
+                  placeholder="https://www.mouser.vn/ProductDetail/..."
+                  value={newProcurement.url}
+                  onChange={e => setNewProcurement({ ...newProcurement, url: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Số lượng</label>
+                  <input
+                    type="number"
+                    className="input-field"
+                    value={newProcurement.quantity}
+                    onChange={e => setNewProcurement({ ...newProcurement, quantity: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="input-label">Đơn giá ước tính (đ)</label>
+                  <input
+                    type="number"
+                    className="input-field"
+                    value={newProcurement.estimatedPrice}
+                    onChange={e => setNewProcurement({ ...newProcurement, estimatedPrice: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Dự án</label>
+                  <select
+                    className="input-field"
+                    value={newProcurement.projectId}
+                    onChange={e => setNewProcurement({ ...newProcurement, projectId: e.target.value })}
+                    required
+                  >
+                    <option value="">-- Chọn dự án --</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Phòng ban đề xuất</label>
+                  <select
+                    className="input-field"
+                    value={newProcurement.departmentId}
+                    onChange={e => setNewProcurement({ ...newProcurement, departmentId: e.target.value })}
+                    required
+                  >
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowProcureModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Gửi Đề xuất</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Booking Modal */}
+      {showBookingModal && (
+        <div className="modal-overlay" onClick={() => setShowBookingModal(false)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Đặt chỗ Thiết bị Lab</h3>
+            <form onSubmit={handleCreateBooking} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="input-label">Tên thiết bị / Phòng Lab</label>
+                <select
+                  className="input-field"
+                  value={newBooking.equipmentName}
+                  onChange={e => setNewBooking({ ...newBooking, equipmentName: e.target.value })}
+                  required
+                >
+                  <option value="Máy in 3D Bambu Lab X1C">Máy in 3D Bambu Lab X1C</option>
+                  <option value="Máy đo phổ nhiễu EMC">Máy đo phổ nhiễu EMC Rigol</option>
+                  <option value="Buồng giả lập nhiệt độ ẩm">Buồng giả lập nhiệt độ ẩm</option>
+                  <option value="Bể hàn sóng mini">Bể hàn sóng mini</option>
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Giờ bắt đầu</label>
+                  <input
+                    type="datetime-local"
+                    className="input-field"
+                    value={newBooking.startTime}
+                    onChange={e => setNewBooking({ ...newBooking, startTime: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="input-label">Giờ kết thúc</label>
+                  <input
+                    type="datetime-local"
+                    className="input-field"
+                    value={newBooking.endTime}
+                    onChange={e => setNewBooking({ ...newBooking, endTime: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowBookingModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Đăng ký Đặt chỗ</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Failure Modal */}
+      {showFailureModal && (
+        <div className="modal-overlay" onClick={() => setShowFailureModal(false)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Ghi nhận Nhật ký Lỗi kỹ thuật</h3>
+            <form onSubmit={handleCreateFailure} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="input-label">Tiêu đề lỗi</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="Ví dụ: IC nguồn hạ áp bị cháy khi cấp nguồn 24V..."
+                  value={newFailure.title}
+                  onChange={e => setNewFailure({ ...newFailure, title: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Mô tả chi tiết lỗi</label>
+                <textarea
+                  className="input-field"
+                  rows="3"
+                  placeholder="Hiện tượng, nguyên nhân xác định ban đầu..."
+                  value={newFailure.description}
+                  onChange={e => setNewFailure({ ...newFailure, description: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Giải pháp khắc phục thành công</label>
+                <textarea
+                  className="input-field"
+                  rows="3"
+                  placeholder="Thay đổi tụ chống nhiễu, chỉnh thông số firmware..."
+                  value={newFailure.solution}
+                  onChange={e => setNewFailure({ ...newFailure, solution: e.target.value })}
+                  required
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Dự án</label>
+                  <select
+                    className="input-field"
+                    value={newFailure.projectId}
+                    onChange={e => setNewFailure({ ...newFailure, projectId: e.target.value })}
+                    required
+                  >
+                    <option value="">-- Chọn dự án --</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Bộ phận phát sinh</label>
+                  <select
+                    className="input-field"
+                    value={newFailure.departmentId}
+                    onChange={e => setNewFailure({ ...newFailure, departmentId: e.target.value })}
+                    required
+                  >
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowFailureModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Lưu Nhật ký</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Firmware Modal */}
+      {showFirmwareModal && (
+        <div className="modal-overlay" onClick={() => setShowFirmwareModal(false)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Release Phiên bản Firmware mới</h3>
+            <form onSubmit={handleCreateFirmware} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Dự án</label>
+                  <select
+                    className="input-field"
+                    value={newFirmware.projectId}
+                    onChange={e => setNewFirmware({ ...newFirmware, projectId: e.target.value })}
+                    required
+                  >
+                    <option value="">-- Chọn dự án --</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Phiên bản (Tag)</label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="v1.0.3-alpha..."
+                    value={newFirmware.version}
+                    onChange={e => setNewFirmware({ ...newFirmware, version: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="input-label">Phiên bản PCB tương thích</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="PCB-THEMIS-V1.2..."
+                  value={newFirmware.pcbVersionCompatible}
+                  onChange={e => setNewFirmware({ ...newFirmware, pcbVersionCompatible: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Nhật ký thay đổi (Changelog)</label>
+                <textarea
+                  className="input-field"
+                  rows="3"
+                  placeholder="Sửa lỗi tràn bộ nhớ stack, thêm driver cảm biến I2C..."
+                  value={newFirmware.changelog}
+                  onChange={e => setNewFirmware({ ...newFirmware, changelog: e.target.value })}
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowFirmwareModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Phát hành</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Wiki Modal */}
+      {showWikiModal && (
+        <div className="modal-overlay" onClick={() => setShowWikiModal(false)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Tạo Hướng dẫn Onboarding mới</h3>
+            <form onSubmit={handleCreateWiki} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="input-label">Tiêu đề bài viết</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="Ví dụ: Hướng dẫn cài đặt Keil C cho chip STM32..."
+                  value={newWiki.title}
+                  onChange={e => setNewWiki({ ...newWiki, title: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Nội dung (Markdown)</label>
+                <textarea
+                  className="input-field"
+                  rows="8"
+                  placeholder="Sử dụng markdown để soạn thảo bài viết..."
+                  value={newWiki.contentMarkdown}
+                  onChange={e => setNewWiki({ ...newWiki, contentMarkdown: e.target.value })}
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowWikiModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Lưu bài viết</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Link Modal */}
+      {showLinkModal && (
+        <div className="modal-overlay" onClick={() => setShowLinkModal(false)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Thêm Liên kết Tài nguyên</h3>
+            <form onSubmit={handleCreateLink} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Dự án</label>
+                  <select
+                    className="input-field"
+                    value={newLink.projectId}
+                    onChange={e => setNewLink({ ...newLink, projectId: e.target.value })}
+                    required
+                  >
+                    <option value="">-- Chọn dự án --</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Tên nhãn (Label)</label>
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder="Ví dụ: Link mạch Altium EasyEDA..."
+                    value={newLink.label}
+                    onChange={e => setNewLink({ ...newLink, label: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="input-label">Đường dẫn URL</label>
+                <input
+                  type="url"
+                  className="input-field"
+                  placeholder="https://github.com/... hoặc link Google Drive..."
+                  value={newLink.url}
+                  onChange={e => setNewLink({ ...newLink, url: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Mô tả ngắn</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="Ví dụ: File Altium schematic v1.2 của khối nguồn..."
+                  value={newLink.description}
+                  onChange={e => setNewLink({ ...newLink, description: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowLinkModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Lưu liên kết</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Inherit Project Modal */}
+      {showInheritModal && (
+        <div className="modal-overlay" onClick={() => setShowInheritModal(false)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Kế thừa tri thức từ dự án cũ</h3>
+            <form onSubmit={handleInheritProject} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="input-label">Chọn dự án nguồn (Dự án cũ)</label>
+                <select
+                  className="input-field"
+                  value={inheritForm.sourceProjectId}
+                  onChange={e => setInheritForm({ ...inheritForm, sourceProjectId: e.target.value })}
+                  required
+                >
+                  <option value="">-- Chọn dự án cũ --</option>
+                  {projects.filter(p => p.id !== Number(selectedProjectId)).map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={inheritForm.inheritBOM}
+                    onChange={e => setInheritForm({ ...inheritForm, inheritBOM: e.target.checked })}
+                  />
+                  <span>Kế thừa Danh sách linh kiện mẫu (BOM)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={inheritForm.inheritLinks}
+                    onChange={e => setInheritForm({ ...inheritForm, inheritLinks: e.target.checked })}
+                  />
+                  <span>Kế thừa Các liên kết tài nguyên thiết kế</span>
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowInheritModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Tiến hành kế thừa</button>
               </div>
             </form>
           </div>
