@@ -109,6 +109,7 @@ export default function App() {
   // Weekly summary filter for Admins
   const [summaryWeek, setSummaryWeek] = useState(getMonday(new Date()));
   const [weeklySummary, setWeeklySummary] = useState(null);
+  const [reportRemarks, setReportRemarks] = useState('');
 
   // Tab đăng nhập / đăng ký tự do
   const [isLoginTab, setIsLoginTab] = useState(true);
@@ -997,7 +998,7 @@ export default function App() {
   };
   const handleExportDoc = async () => {
     try {
-      const res = await fetch(`${API_BASE}/reports/export-doc?weekStartDate=${summaryWeek}`, {
+      const res = await fetch(`${API_BASE}/reports/export-doc?weekStartDate=${summaryWeek}&remarks=${encodeURIComponent(reportRemarks)}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!res.ok) {
@@ -1483,11 +1484,31 @@ export default function App() {
                     <Target size={22} style={{ color: 'var(--accent-primary)' }} />
                     Mục tiêu công việc của tôi
                   </h3>
-                  <button className="btn btn-primary" style={{ padding: '8px 14px', fontSize: '0.85rem' }} onClick={() => setShowGoalModal(true)}>
+                  <button className="btn btn-primary btn-important-pulse" style={{ padding: '8px 14px', fontSize: '0.85rem' }} onClick={() => setShowGoalModal(true)}>
                     <Plus size={16} />
                     Đặt mục tiêu
                   </button>
                 </div>
+
+                {goals.some(g => g.userId === user.id && g.status === 'Overdue') && (
+                  <div style={{
+                    padding: '12px 16px',
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    borderRadius: '10px',
+                    color: '#fca5a5',
+                    marginBottom: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    fontSize: '0.85rem'
+                  }}>
+                    <AlertTriangle size={18} style={{ color: 'var(--status-overdue)', flexShrink: 0 }} />
+                    <div>
+                      <strong>CẢNH BÁO TRỄ HẠN:</strong> Bạn đang có {goals.filter(g => g.userId === user.id && g.status === 'Overdue').length} mục tiêu quá hạn chưa hoàn thành. Vui lòng cập nhật tiến độ hoặc xử lý gấp!
+                    </div>
+                  </div>
+                )}
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
                   
@@ -1501,20 +1522,30 @@ export default function App() {
                       <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Chưa có mục tiêu ngày.</p>
                     ) : (
                       goals.filter(g => g.type === 'day' && g.userId === user.id).map(g => {
+                        const isOverdue = g.status === 'Overdue';
                         const borderStyle = g.progress === 100 
                           ? '1px solid rgba(16, 185, 129, 0.4)' 
-                          : g.progress > 0 
-                            ? '1px solid rgba(245, 158, 11, 0.3)' 
-                            : '1px solid var(--border-glass)';
+                          : isOverdue
+                            ? '1px solid rgba(239, 68, 68, 0.5)'
+                            : g.progress > 0 
+                              ? '1px solid rgba(245, 158, 11, 0.3)' 
+                              : '1px solid var(--border-glass)';
                         const bgStyle = g.progress === 100 
                           ? 'rgba(16, 185, 129, 0.04)' 
-                          : g.progress > 0 
-                            ? 'rgba(245, 158, 11, 0.02)' 
-                            : 'rgba(17, 24, 39, 0.6)';
+                          : isOverdue
+                            ? 'rgba(239, 68, 68, 0.06)'
+                            : g.progress > 0 
+                              ? 'rgba(245, 158, 11, 0.02)' 
+                              : 'rgba(17, 24, 39, 0.6)';
                         return (
                           <div key={g.id} className="goal-item animate-fade-in" style={{ border: borderStyle, background: bgStyle }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                              <div style={{ fontSize: '0.85rem', fontWeight: 600, textDecoration: g.progress === 100 ? 'line-through' : 'none', color: g.progress === 100 ? 'var(--text-muted)' : '#fff' }}>{g.content}</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 600, textDecoration: g.progress === 100 ? 'line-through' : 'none', color: g.progress === 100 ? 'var(--text-muted)' : '#fff' }}>{g.content}</div>
+                                {isOverdue && (
+                                  <span style={{ fontSize: '0.65rem', fontWeight: 'bold', color: '#ef4444', background: 'rgba(239, 68, 68, 0.15)', padding: '2px 6px', borderRadius: '4px', alignSelf: 'flex-start' }}>TRỄ HẠN</span>
+                                )}
+                              </div>
                               <button 
                                 className="btn" 
                                 style={{ padding: '4px', background: 'transparent', border: 'none', color: 'var(--text-muted)', hoverColor: '#ef4444' }} 
@@ -1525,7 +1556,6 @@ export default function App() {
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Hạn: {g.targetDate}</div>
                             
-                            {/* Quick Select Progress */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cập nhật:</span>
                               <div style={{ display: 'flex', gap: '3px' }}>
@@ -1578,20 +1608,30 @@ export default function App() {
                       <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Chưa có mục tiêu tuần.</p>
                     ) : (
                       goals.filter(g => g.type === 'week' && g.userId === user.id).map(g => {
+                        const isOverdue = g.status === 'Overdue';
                         const borderStyle = g.progress === 100 
                           ? '1px solid rgba(16, 185, 129, 0.4)' 
-                          : g.progress > 0 
-                            ? '1px solid rgba(245, 158, 11, 0.3)' 
-                            : '1px solid var(--border-glass)';
+                          : isOverdue
+                            ? '1px solid rgba(239, 68, 68, 0.5)'
+                            : g.progress > 0 
+                              ? '1px solid rgba(245, 158, 11, 0.3)' 
+                              : '1px solid var(--border-glass)';
                         const bgStyle = g.progress === 100 
                           ? 'rgba(16, 185, 129, 0.04)' 
-                          : g.progress > 0 
-                            ? 'rgba(245, 158, 11, 0.02)' 
-                            : 'rgba(17, 24, 39, 0.6)';
+                          : isOverdue
+                            ? 'rgba(239, 68, 68, 0.06)'
+                            : g.progress > 0 
+                              ? 'rgba(245, 158, 11, 0.02)' 
+                              : 'rgba(17, 24, 39, 0.6)';
                         return (
                           <div key={g.id} className="goal-item animate-fade-in" style={{ border: borderStyle, background: bgStyle }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                              <div style={{ fontSize: '0.85rem', fontWeight: 600, textDecoration: g.progress === 100 ? 'line-through' : 'none', color: g.progress === 100 ? 'var(--text-muted)' : '#fff' }}>{g.content}</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 600, textDecoration: g.progress === 100 ? 'line-through' : 'none', color: g.progress === 100 ? 'var(--text-muted)' : '#fff' }}>{g.content}</div>
+                                {isOverdue && (
+                                  <span style={{ fontSize: '0.65rem', fontWeight: 'bold', color: '#ef4444', background: 'rgba(239, 68, 68, 0.15)', padding: '2px 6px', borderRadius: '4px', alignSelf: 'flex-start' }}>TRỄ HẠN</span>
+                                )}
+                              </div>
                               <button 
                                 className="btn" 
                                 style={{ padding: '4px', background: 'transparent', border: 'none', color: 'var(--text-muted)', hoverColor: '#ef4444' }} 
@@ -1602,7 +1642,6 @@ export default function App() {
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Tuần: {g.targetDate}</div>
                             
-                            {/* Quick Select Progress */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cập nhật:</span>
                               <div style={{ display: 'flex', gap: '3px' }}>
@@ -1655,20 +1694,30 @@ export default function App() {
                       <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Chưa có mục tiêu tháng.</p>
                     ) : (
                       goals.filter(g => g.type === 'month' && g.userId === user.id).map(g => {
+                        const isOverdue = g.status === 'Overdue';
                         const borderStyle = g.progress === 100 
                           ? '1px solid rgba(16, 185, 129, 0.4)' 
-                          : g.progress > 0 
-                            ? '1px solid rgba(245, 158, 11, 0.3)' 
-                            : '1px solid var(--border-glass)';
+                          : isOverdue
+                            ? '1px solid rgba(239, 68, 68, 0.5)'
+                            : g.progress > 0 
+                              ? '1px solid rgba(245, 158, 11, 0.3)' 
+                              : '1px solid var(--border-glass)';
                         const bgStyle = g.progress === 100 
                           ? 'rgba(16, 185, 129, 0.04)' 
-                          : g.progress > 0 
-                            ? 'rgba(245, 158, 11, 0.02)' 
-                            : 'rgba(17, 24, 39, 0.6)';
+                          : isOverdue
+                            ? 'rgba(239, 68, 68, 0.06)'
+                            : g.progress > 0 
+                              ? 'rgba(245, 158, 11, 0.02)' 
+                              : 'rgba(17, 24, 39, 0.6)';
                         return (
                           <div key={g.id} className="goal-item animate-fade-in" style={{ border: borderStyle, background: bgStyle }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                              <div style={{ fontSize: '0.85rem', fontWeight: 600, textDecoration: g.progress === 100 ? 'line-through' : 'none', color: g.progress === 100 ? 'var(--text-muted)' : '#fff' }}>{g.content}</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 600, textDecoration: g.progress === 100 ? 'line-through' : 'none', color: g.progress === 100 ? 'var(--text-muted)' : '#fff' }}>{g.content}</div>
+                                {isOverdue && (
+                                  <span style={{ fontSize: '0.65rem', fontWeight: 'bold', color: '#ef4444', background: 'rgba(239, 68, 68, 0.15)', padding: '2px 6px', borderRadius: '4px', alignSelf: 'flex-start' }}>TRỄ HẠN</span>
+                                )}
+                              </div>
                               <button 
                                 className="btn" 
                                 style={{ padding: '4px', background: 'transparent', border: 'none', color: 'var(--text-muted)', hoverColor: '#ef4444' }} 
@@ -1679,7 +1728,6 @@ export default function App() {
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Tháng: {g.targetDate}</div>
                             
-                            {/* Quick Select Progress */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cập nhật:</span>
                               <div style={{ display: 'flex', gap: '3px' }}>
@@ -1781,6 +1829,78 @@ export default function App() {
               </div>
 
             </div>
+
+            {/* Team Goals Monitor for Admin/Leader */}
+            {(user.role === 'admin' || user.role === 'leader') && (
+              <div className="glass-card animate-fade-in" style={{ padding: '24px', marginTop: '24px' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <Users size={22} style={{ color: 'var(--accent-secondary)' }} />
+                  Giám sát Mục tiêu Đội ngũ R&D
+                </h3>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '20px' }}>
+                  Xem và giám sát mục tiêu công việc của các kỹ sư cấp dưới. Hệ thống tự động cảnh báo các kỹ sư có mục tiêu trễ hạn.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {usersList.filter(u => u.id !== user.id && (user.role === 'admin' || u.departmentId === user.departmentId)).map(member => {
+                    const memberGoals = goals.filter(g => g.userId === member.id);
+                    const overdueGoals = memberGoals.filter(g => g.status === 'Overdue');
+                    const deptName = departments.find(d => d.id === member.departmentId)?.name || 'Khác';
+                    
+                    return (
+                      <div key={member.id} style={{
+                        padding: '16px',
+                        background: 'rgba(255,255,255,0.02)',
+                        border: overdueGoals.length > 0 ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-glass)',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '12px'
+                      }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {member.fullName} 
+                            <span className="dept-tag">{deptName}</span>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 'normal', color: 'var(--text-muted)' }}>@{member.username}</span>
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Tổng mục tiêu: {memberGoals.length} | Hoàn thành: {memberGoals.filter(g => g.status === 'Completed').length} 
+                            {overdueGoals.length > 0 && (
+                              <span style={{ color: 'var(--status-overdue)', marginLeft: '8px', fontWeight: 'bold' }}>
+                                ⚠️ {overdueGoals.length} Trễ hạn!
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* List mini goals */}
+                        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', maxWidth: '60%' }}>
+                          {memberGoals.map(g => (
+                            <div key={g.id} style={{
+                              padding: '6px 10px',
+                              background: g.status === 'Completed' ? 'rgba(16, 185, 129, 0.1)' : g.status === 'Overdue' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(255,255,255,0.04)',
+                              border: g.status === 'Completed' ? '1px solid rgba(16, 185, 129, 0.2)' : g.status === 'Overdue' ? '1px solid rgba(239, 68, 68, 0.2)' : '1px solid rgba(255,255,255,0.06)',
+                              borderRadius: '8px',
+                              fontSize: '0.75rem',
+                              whiteSpace: 'nowrap',
+                              color: g.status === 'Completed' ? 'var(--status-done)' : g.status === 'Overdue' ? '#fca5a5' : 'var(--text-secondary)'
+                            }}>
+                              {g.content.length > 25 ? g.content.substring(0, 25) + '...' : g.content} ({g.progress}%)
+                            </div>
+                          ))}
+                          {memberGoals.length === 0 && (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Chưa đặt mục tiêu nào.</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
           </div>
         )}
 
@@ -2016,12 +2136,13 @@ export default function App() {
                       style={{ resize: 'vertical' }}
                     />
                   </div>
-                  <button type="submit" className="btn btn-primary" style={{ alignSelf: 'flex-start' }}>Gửi báo cáo tuần</button>
+                  <button type="submit" className="btn btn-primary btn-important-pulse" style={{ alignSelf: 'flex-start' }}>Gửi báo cáo tuần</button>
                 </form>
               </div>
 
               {/* Admin/Leader Weekly Synthesis Panel */}
-              <div className="glass-card" style={{ padding: '28px' }}>
+              {(user.role === 'admin' || user.role === 'leader') && (
+                <div className="glass-card" style={{ padding: '28px' }}>
                 <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <TrendingUp size={22} style={{ color: 'var(--accent-secondary)' }} />
                   Tổng hợp báo cáo cho Admin/Leader
@@ -2040,7 +2161,7 @@ export default function App() {
                   />
                   <button className="btn btn-secondary" onClick={() => fetchWeeklySummary(summaryWeek)}>Xem tổng hợp</button>
                   {weeklySummary && (
-                    <button className="btn btn-primary" onClick={handleExportDoc} style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}>
+                    <button className="btn btn-primary btn-important-pulse" onClick={handleExportDoc} style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}>
                       Xuất File Word (.doc)
                     </button>
                   )}
@@ -2048,6 +2169,17 @@ export default function App() {
 
                 {weeklySummary ? (
                   <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-glass)', borderRadius: '12px' }}>
+                      <label className="input-label" style={{ color: 'var(--accent-secondary)' }}>Nhận xét / Ý kiến chỉ đạo của Ban quản lý (Sẽ xuất vào file Word)</label>
+                      <textarea
+                        className="input-field"
+                        rows="3"
+                        placeholder="Nhập nhận xét tổng quan kỹ thuật, đánh giá tiến độ hoặc các đề xuất chỉ đạo đối với đội R&D..."
+                        value={reportRemarks}
+                        onChange={e => setReportRemarks(e.target.value)}
+                        style={{ resize: 'vertical', marginTop: '6px' }}
+                      />
+                    </div>
                     <div style={{ padding: '16px', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '12px' }}>
                       <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <AlertCircle size={16} style={{ color: 'var(--accent-primary)' }} />
@@ -2111,6 +2243,7 @@ export default function App() {
                   </div>
                 )}
               </div>
+              )}
 
             </div>
           </div>
@@ -2145,7 +2278,7 @@ export default function App() {
                     <label className="input-label">Khó khăn / Vướng mắc (nếu có)</label>
                     <input type="text" className="input-field" placeholder="Mỏ hàn bị hỏng, linh kiện IC nguồn về chậm..." value={myStandup.blockers} onChange={e => setMyStandup({ ...myStandup, blockers: e.target.value })} />
                   </div>
-                  <button type="submit" className="btn btn-primary" style={{ padding: '12px' }}>Gửi Check-in</button>
+                  <button type="submit" className="btn btn-primary btn-important-pulse" style={{ padding: '12px' }}>Gửi Check-in</button>
                 </form>
               </div>
 
@@ -2865,7 +2998,9 @@ export default function App() {
           <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3>Chi tiết & Chỉnh sửa Task</h3>
-              <button className="btn btn-danger" style={{ background: '#ef4444', padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleDeleteTask(editingTask.id)}>Xóa Task</button>
+              {(user.role === 'admin' || user.role === 'leader') && (
+                <button className="btn btn-danger" style={{ background: '#ef4444', padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleDeleteTask(editingTask.id)}>Xóa Task</button>
+              )}
             </div>
             <form onSubmit={e => {
               e.preventDefault();

@@ -393,24 +393,56 @@ app.post('/api/standups', authenticateToken, (req, res) => {
 // --- GOALS APIS ---
 app.get('/api/goals', authenticateToken, (req, res) => {
   const goals = getAll('goals');
-  // Return user's own goals or all if leader/admin
-  if (req.user.role === 'admin' || req.user.role === 'leader') {
-    res.json(goals);
+  const users = getAll('users');
+  
+  const todayStr = new Date().toISOString().split('T')[0];
+  const updatedGoals = goals.map(g => {
+    if (g.progress < 100 && g.targetDate < todayStr && g.status !== 'Overdue') {
+      g.status = 'Overdue';
+      update('goals', g.id, { status: 'Overdue' });
+    } else if (g.progress === 100 && g.status !== 'Completed') {
+      g.status = 'Completed';
+      update('goals', g.id, { status: 'Completed' });
+    } else if (g.progress < 100 && g.targetDate >= todayStr && g.status === 'Overdue') {
+      g.status = 'Pending';
+      update('goals', g.id, { status: 'Pending' });
+    }
+    return g;
+  });
+
+  if (req.user.role === 'admin') {
+    res.json(updatedGoals);
+  } else if (req.user.role === 'leader') {
+    const myDept = req.user.departmentId;
+    const filtered = updatedGoals.filter(g => {
+      const owner = users.find(u => u.id === g.userId);
+      return g.userId === req.user.id || (owner && owner.departmentId === myDept);
+    });
+    res.json(filtered);
   } else {
-    res.json(goals.filter(g => g.userId === req.user.id));
+    res.json(updatedGoals.filter(g => g.userId === req.user.id));
   }
 });
 
 app.post('/api/goals', authenticateToken, (req, res) => {
+  const todayStr = new Date().toISOString().split('T')[0];
+
   if (Array.isArray(req.body)) {
     const inserted = req.body.map(item => {
       if (!item.type || !item.content || !item.targetDate) return null;
+      const prog = item.progress !== undefined ? Number(item.progress) : 0;
+      let stat = 'Pending';
+      if (prog === 100) stat = 'Completed';
+      else if (item.targetDate < todayStr) stat = 'Overdue';
+
       return insert('goals', {
         userId: req.user.id,
         type: item.type,
         content: item.content,
-        progress: item.progress !== undefined ? Number(item.progress) : 0,
-        targetDate: item.targetDate
+        progress: prog,
+        status: stat,
+        targetDate: item.targetDate,
+        createdAt: todayStr
       });
     }).filter(Boolean);
     return res.status(201).json(inserted);
@@ -421,12 +453,19 @@ app.post('/api/goals', authenticateToken, (req, res) => {
     return res.status(400).json({ message: 'Thiếu thông tin mục tiêu bắt buộc (Loại, Nội dung, Thời hạn).' });
   }
 
+  const prog = progress !== undefined ? Number(progress) : 0;
+  let stat = 'Pending';
+  if (prog === 100) stat = 'Completed';
+  else if (targetDate < todayStr) stat = 'Overdue';
+
   const newGoal = insert('goals', {
     userId: req.user.id,
-    type, // 'day', 'week', 'month'
+    type,
     content,
-    progress: progress !== undefined ? Number(progress) : 0,
-    targetDate
+    progress: prog,
+    status: stat,
+    targetDate,
+    createdAt: todayStr
   });
   res.status(201).json(newGoal);
 });
@@ -435,15 +474,39 @@ app.put('/api/goals/:id', authenticateToken, (req, res) => {
   const goal = getById('goals', req.params.id);
   if (!goal) return res.status(404).json({ message: 'Không tìm thấy mục tiêu.' });
 
-  if (goal.userId !== req.user.id && req.user.role !== 'admin') {
+  const users = getAll('users');
+  const owner = users.find(u => u.id === goal.userId);
+  const isOwner = goal.userId === req.user.id;
+  const isAdmin = req.user.role === 'admin';
+  const isLeaderOfSameDept = req.user.role === 'leader' && owner && owner.departmentId === req.user.departmentId;
+
+  if (!isOwner && !isAdmin && !isLeaderOfSameDept) {
     return res.status(403).json({ message: 'Bạn không có quyền chỉnh sửa mục tiêu của người khác.' });
   }
 
-  const { content, progress, targetDate } = req.body;
+  const { content, progress, targetDate, status } = req.body;
   const updates = {};
   if (content !== undefined) updates.content = content;
-  if (progress !== undefined) updates.progress = Math.min(100, Math.max(0, Number(progress)));
   if (targetDate !== undefined) updates.targetDate = targetDate;
+  
+  if (progress !== undefined) {
+    const p = Math.min(100, Math.max(0, Number(progress)));
+    updates.progress = p;
+    if (p === 100) {
+      updates.status = 'Completed';
+    } else {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const tDate = targetDate || goal.targetDate;
+      updates.status = tDate < todayStr ? 'Overdue' : 'Pending';
+    }
+  }
+  
+  if (status !== undefined) {
+    updates.status = status;
+    if (status === 'Completed') {
+      updates.progress = 100;
+    }
+  }
 
   const updated = update('goals', req.params.id, updates);
   res.json(updated);
@@ -453,7 +516,13 @@ app.delete('/api/goals/:id', authenticateToken, (req, res) => {
   const goal = getById('goals', req.params.id);
   if (!goal) return res.status(404).json({ message: 'Không tìm thấy mục tiêu.' });
 
-  if (goal.userId !== req.user.id && req.user.role !== 'admin') {
+  const users = getAll('users');
+  const owner = users.find(u => u.id === goal.userId);
+  const isOwner = goal.userId === req.user.id;
+  const isAdmin = req.user.role === 'admin';
+  const isLeaderOfSameDept = req.user.role === 'leader' && owner && owner.departmentId === req.user.departmentId;
+
+  if (!isOwner && !isAdmin && !isLeaderOfSameDept) {
     return res.status(403).json({ message: 'Bạn không có quyền xóa mục tiêu của người khác.' });
   }
 
@@ -550,12 +619,19 @@ app.get('/api/reports/weekly-summary', authenticateToken, requireLeaderOrAdmin, 
     return res.status(400).json({ message: 'Vui lòng cung cấp tham số weekStartDate (YYYY-MM-DD).' });
   }
 
+  const start = new Date(weekStartDate);
+  const end = new Date(weekStartDate);
+  end.setDate(end.getDate() + 6);
+  const startStr = start.toISOString().split('T')[0];
+  const endStr = end.toISOString().split('T')[0];
+
   const reports = getAll('reports').filter(r => r.weekStartDate === weekStartDate);
+  const standups = getAll('standups').filter(s => s.date >= startStr && s.date <= endStr);
   const users = getAll('users');
   const departments = getAll('departments');
   const tasks = getAll('tasks');
+  const procurements = getAll('procurements');
 
-  // Summary object
   const summary = {
     weekStartDate,
     totalSubmissions: reports.length,
@@ -564,23 +640,28 @@ app.get('/api/reports/weekly-summary', authenticateToken, requireLeaderOrAdmin, 
     activeTasksCount: 0,
     overdueTasksCount: 0,
     allBlockers: [],
-    synthesizedOverview: ''
+    synthesizedOverview: '',
+    totalApprovedBOMCost: 0,
+    totalPendingBOMCost: 0,
+    totalOrderedBOMCost: 0
   };
 
-  // Compile overall statistics for tasks
   const todayStr = new Date().toISOString().split('T')[0];
   tasks.forEach(t => {
     if (t.status === 'Done') {
       summary.completedTasksCount++;
     } else {
       summary.activeTasksCount++;
-      if (t.deadline < todayStr) {
+      if (t.dueDate && t.dueDate < todayStr) {
         summary.overdueTasksCount++;
       }
     }
   });
 
-  // Group by department
+  summary.totalApprovedBOMCost = procurements.filter(p => p.status === 'Approved').reduce((acc, p) => acc + Number(p.estimatedPrice) * Number(p.quantity), 0);
+  summary.totalPendingBOMCost = procurements.filter(p => p.status === 'Pending').reduce((acc, p) => acc + Number(p.estimatedPrice) * Number(p.quantity), 0);
+  summary.totalOrderedBOMCost = procurements.filter(p => p.status === 'Ordered').reduce((acc, p) => acc + Number(p.estimatedPrice) * Number(p.quantity), 0);
+
   departments.forEach(dept => {
     summary.departmentsSummary[dept.name] = {
       submittedUsers: [],
@@ -591,6 +672,7 @@ app.get('/api/reports/weekly-summary', authenticateToken, requireLeaderOrAdmin, 
   });
 
   const reportsDataForAI = [];
+  const splitPoints = (text) => text ? text.split('\n').map(p => p.trim()).filter(p => p.length > 0) : [];
 
   reports.forEach(rep => {
     const user = users.find(u => u.id === rep.userId);
@@ -602,10 +684,9 @@ app.get('/api/reports/weekly-summary', authenticateToken, requireLeaderOrAdmin, 
       summary.departmentsSummary[deptName] = { submittedUsers: [], donePoints: [], plannedPoints: [], blockers: [] };
     }
 
-    summary.departmentsSummary[deptName].submittedUsers.push(user.fullName);
-    
-    // Split text paragraphs into list points
-    const splitPoints = (text) => text ? text.split('\n').map(p => p.trim()).filter(p => p.length > 0) : [];
+    if (!summary.departmentsSummary[deptName].submittedUsers.includes(user.fullName)) {
+      summary.departmentsSummary[deptName].submittedUsers.push(user.fullName);
+    }
     
     const done = splitPoints(rep.doneContent).map(p => `${user.fullName}: ${p}`);
     const planned = splitPoints(rep.plannedContent).map(p => `${user.fullName}: ${p}`);
@@ -628,14 +709,39 @@ app.get('/api/reports/weekly-summary', authenticateToken, requireLeaderOrAdmin, 
     });
   });
 
-  // Call Gemini for smart summary
+  standups.forEach(std => {
+    const user = users.find(u => u.id === std.userId);
+    if (!user) return;
+    const dept = departments.find(d => d.id === user.departmentId);
+    const deptName = dept ? dept.name : 'Khác';
+
+    if (!summary.departmentsSummary[deptName]) {
+      summary.departmentsSummary[deptName] = { submittedUsers: [], donePoints: [], plannedPoints: [], blockers: [] };
+    }
+
+    if (!summary.departmentsSummary[deptName].submittedUsers.includes(user.fullName)) {
+      summary.departmentsSummary[deptName].submittedUsers.push(user.fullName);
+    }
+
+    const done = splitPoints(std.completedWork).map(p => `${user.fullName} (Standup ${std.date}): ${p}`);
+    const planned = splitPoints(std.planToday).map(p => `${user.fullName} (Standup ${std.date}): ${p}`);
+
+    summary.departmentsSummary[deptName].donePoints.push(...done);
+    summary.departmentsSummary[deptName].plannedPoints.push(...planned);
+
+    if (std.blockers && std.blockers.trim().length > 0 && std.blockers !== 'Không có' && std.blockers !== 'Không') {
+      const blk = splitPoints(std.blockers).map(p => `${user.fullName} (Standup ${std.date}): ${p}`);
+      summary.departmentsSummary[deptName].blockers.push(...blk);
+      summary.allBlockers.push(...blk);
+    }
+  });
+
   const geminiSummary = await summarizeWithGemini(weekStartDate, reportsDataForAI);
 
   if (geminiSummary) {
     summary.synthesizedOverview = geminiSummary;
   } else {
-    // Fallback to local rule-based overview
-    let overviewText = `Trong tuần từ ${weekStartDate}, có ${reports.length} thành viên nộp báo cáo tuần.\n`;
+    let overviewText = `Trong tuần từ ${weekStartDate}, ghi nhận báo cáo và check-in R&D từ ${reports.length} thành viên.\n`;
     overviewText += `Tổng số đầu việc đã hoàn thành: ${summary.completedTasksCount}. Công việc đang thực hiện: ${summary.activeTasksCount}.\n`;
     if (summary.allBlockers.length > 0) {
       overviewText += `CẢNH BÁO: Phát hiện ${summary.allBlockers.length} khó khăn/vướng mắc ảnh hưởng tới tiến độ.`;
@@ -650,107 +756,145 @@ app.get('/api/reports/weekly-summary', authenticateToken, requireLeaderOrAdmin, 
 
 // --- EXPORT WEEKLY REPORT TO DOC ---
 app.get('/api/reports/export-doc', authenticateToken, requireLeaderOrAdmin, (req, res) => {
-  const { weekStartDate } = req.query;
+  const { weekStartDate, remarks } = req.query;
   if (!weekStartDate) {
     return res.status(400).json({ message: 'Vui lòng cung cấp tham số weekStartDate (YYYY-MM-DD).' });
   }
 
+  const start = new Date(weekStartDate);
+  const end = new Date(weekStartDate);
+  end.setDate(end.getDate() + 6);
+  const startStr = start.toISOString().split('T')[0];
+  const endStr = end.toISOString().split('T')[0];
+
   const reports = getAll('reports').filter(r => r.weekStartDate === weekStartDate);
+  const standups = getAll('standups').filter(s => s.date >= startStr && s.date <= endStr);
   const users = getAll('users');
   const departments = getAll('departments');
-  const tasks = getAll('tasks');
+  const procurements = getAll('procurements');
 
-  // Gather stats
-  const completedTasks = tasks.filter(t => t.status === 'Done');
-  const activeBlockers = reports.filter(r => r.blockers && r.blockers.trim().length > 0);
+  const activeBlockers = [];
+  const splitPoints = (text) => text ? text.split('\n').map(p => p.trim()).filter(p => p.length > 0) : [];
 
-  // Intelligent Simulated AI synthesis summary
-  let aiOverview = `Báo cáo hoạt động nghiên cứu & phát triển (R&D) nội bộ tuần bắt đầu từ ngày ${weekStartDate}.\n`;
-  aiOverview += `Hệ thống ghi nhận tổng số ${reports.length} báo cáo tuần từ các phòng ban. `;
+  reports.forEach(r => {
+    const u = users.find(user => user.id === r.userId);
+    if (r.blockers && r.blockers.trim().length > 0) {
+      activeBlockers.push({ userName: u ? u.fullName : 'NV', text: r.blockers });
+    }
+  });
   
-  if (completedTasks.length > 0) {
-    aiOverview += `Tiến độ chung đạt hiệu quả tốt với việc hoàn thành ${completedTasks.length} đầu mục công việc chính. `;
-  }
-  
-  if (activeBlockers.length > 0) {
-    aiOverview += `CẢNH BÁO: Đội ngũ đang gặp một số vướng mắc chính liên quan đến ${activeBlockers.length} vấn đề. Cần Trưởng nhóm (Leader) hỗ trợ giải quyết sớm để không ảnh hưởng deadline.`;
-  } else {
-    aiOverview += `Mọi luồng công việc đang vận hành trơn tru và không ghi nhận khó khăn hay vật cản (blockers) nào từ nhân viên.`;
-  }
+  standups.forEach(s => {
+    const u = users.find(user => user.id === s.userId);
+    if (s.blockers && s.blockers.trim().length > 0 && s.blockers !== 'Không có' && s.blockers !== 'Không') {
+      activeBlockers.push({ userName: u ? u.fullName : 'NV (Standup ' + s.date + ')', text: s.blockers });
+    }
+  });
+
+  const totalApprovedBOMCost = procurements.filter(p => p.status === 'Approved').reduce((acc, p) => acc + Number(p.estimatedPrice) * Number(p.quantity), 0);
+  const totalPendingBOMCost = procurements.filter(p => p.status === 'Pending').reduce((acc, p) => acc + Number(p.estimatedPrice) * Number(p.quantity), 0);
+
+  const departmentsSummary = {};
+  departments.forEach(dept => {
+    departmentsSummary[dept.name] = {
+      submittedUsers: [],
+      donePoints: [],
+      plannedPoints: []
+    };
+  });
+
+  reports.forEach(rep => {
+    const user = users.find(u => u.id === rep.userId);
+    if (!user) return;
+    const dept = departments.find(d => d.id === user.departmentId);
+    const deptName = dept ? dept.name : 'Khác';
+
+    if (!departmentsSummary[deptName].submittedUsers.includes(user.fullName)) {
+      departmentsSummary[deptName].submittedUsers.push(user.fullName);
+    }
+    departmentsSummary[deptName].donePoints.push(...splitPoints(rep.doneContent).map(p => `${user.fullName}: ${p}`));
+    departmentsSummary[deptName].plannedPoints.push(...splitPoints(rep.plannedContent).map(p => `${user.fullName}: ${p}`));
+  });
+
+  standups.forEach(std => {
+    const user = users.find(u => u.id === std.userId);
+    if (!user) return;
+    const dept = departments.find(d => d.id === user.departmentId);
+    const deptName = dept ? dept.name : 'Khác';
+
+    if (!departmentsSummary[deptName].submittedUsers.includes(user.fullName)) {
+      departmentsSummary[deptName].submittedUsers.push(user.fullName);
+    }
+    departmentsSummary[deptName].donePoints.push(...splitPoints(std.completedWork).map(p => `${user.fullName} (Daily ${std.date}): ${p}`));
+    departmentsSummary[deptName].plannedPoints.push(...splitPoints(std.planToday).map(p => `${user.fullName} (Daily ${std.date}): ${p}`));
+  });
 
   let html = `
   <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
   <head>
-    <title>Bao cao tuan - R&D Team</title>
+    <title>Báo cáo tuần R&D</title>
     <meta charset="utf-8">
     <style>
       body {
         font-family: 'Times New Roman', Times, serif;
         line-height: 1.6;
-        color: #111827;
+        color: #000;
         margin: 40px;
       }
-      .header-title {
+      .header-table {
+        width: 100%;
+        border: none;
+        margin-bottom: 20px;
+      }
+      .header-table td {
+        border: none;
+        padding: 0;
+        font-size: 11pt;
+      }
+      .title-box {
         text-align: center;
-        font-size: 18pt;
+        margin-top: 30px;
+        margin-bottom: 30px;
+      }
+      .main-title {
+        font-size: 15pt;
         font-weight: bold;
-        color: #1e3a8a;
-        margin-bottom: 5px;
         text-transform: uppercase;
       }
-      .header-subtitle {
-        text-align: center;
-        font-size: 11pt;
+      .sub-title {
+        font-size: 12pt;
         font-style: italic;
-        color: #4b5563;
-        margin-bottom: 25px;
+        margin-top: 5px;
       }
-      .divider {
-        border-bottom: 2px double #1e3a8a;
-        margin-bottom: 25px;
-      }
-      .section-heading {
-        font-size: 13pt;
+      .section-title {
+        font-size: 12pt;
         font-weight: bold;
-        color: #1e3a8a;
+        text-transform: uppercase;
         margin-top: 25px;
         margin-bottom: 10px;
-        text-transform: uppercase;
       }
-      .ai-box {
-        background-color: #f3f4f6;
-        border-left: 5px solid #6366f1;
-        padding: 15px;
-        margin-bottom: 20px;
+      .content-box {
         font-size: 11pt;
+        margin-left: 20px;
+        margin-bottom: 15px;
       }
-      .blocker-box {
-        background-color: #fef2f2;
-        border-left: 5px solid #ef4444;
-        padding: 15px;
-        margin-bottom: 20px;
-        color: #991b1b;
-        font-size: 11pt;
-      }
-      table {
+      table.data-table {
         width: 100%;
         border-collapse: collapse;
         margin-top: 10px;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
       }
-      th {
-        background-color: #f3f4f6;
-        color: #1e3a8a;
-        border: 1px solid #9ca3af;
-        padding: 10px;
+      table.data-table th {
+        border: 1px solid #000;
+        padding: 8px;
         font-size: 11pt;
         font-weight: bold;
+        background-color: #f2f2f2;
         text-align: left;
       }
-      td {
-        border: 1px solid #d1d5db;
-        padding: 10px;
-        font-size: 10.5pt;
+      table.data-table td {
+        border: 1px solid #000;
+        padding: 8px;
+        font-size: 11pt;
         vertical-align: top;
       }
       ul {
@@ -758,82 +902,127 @@ app.get('/api/reports/export-doc', authenticateToken, requireLeaderOrAdmin, (req
         padding-left: 20px;
       }
       li {
-        margin-bottom: 5px;
+        margin-bottom: 4px;
       }
-      .signature-row {
-        margin-top: 50px;
-        display: table;
+      .signature-table {
         width: 100%;
+        border: none;
+        margin-top: 50px;
       }
-      .signature-col {
-        display: table-cell;
-        width: 50%;
+      .signature-table td {
+        border: none;
         text-align: center;
+        width: 50%;
         font-size: 11pt;
       }
     </style>
   </head>
   <body>
-    <div class="header-title">BÁO CÁO TỔNG HỢP TIẾN ĐỘ TUẦN</div>
-    <div class="header-subtitle">Tuần bắt đầu từ ngày: ${weekStartDate} | Đơn vị: R&D Team</div>
-    <div class="divider"></div>
+    <table class="header-table">
+      <tr>
+        <td style="text-align: center; width: 45%;">
+          <strong>TRUNG TÂM CÔNG NGHỆ & R&D</strong><br/>
+          <strong>TỔ DỰ ÁN SMART IOT</strong><br/>
+          <span>Số: ....../BC-RD</span>
+        </td>
+        <td style="text-align: center; width: 55%;">
+          <strong>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</strong><br/>
+          <strong>Độc lập - Tự do - Hạnh phúc</strong><br/>
+          <span>----------------------------------</span><br/>
+          <span style="font-style: italic;">Hà Nội, ngày ${new Date().getDate().toString().padStart(2, '0')} tháng ${(new Date().getMonth() + 1).toString().padStart(2, '0')} năm ${new Date().getFullYear()}</span>
+        </td>
+      </tr>
+    </table>
 
-    <div class="section-heading">I. TÓM TẮT TỔNG QUAN (AI SYNTHESIS OVERVIEW)</div>
-    <div class="ai-box">
-      <strong>[Đánh giá tự động]:</strong><br/>
-      ${aiOverview.replace(/\n/g, '<br/>')}
+    <div class="title-box">
+      <div class="main-title">BÁO CÁO TIẾN ĐỘ PHÁT TRIỂN SẢN PHẨM R&D HẰNG TUẦN</div>
+      <div class="sub-title">(Tuần bắt đầu từ ngày: ${weekStartDate} | Đơn vị: R&D Team)</div>
     </div>
 
-    ${activeBlockers.length > 0 ? `
-    <div class="section-heading" style="color:#ef4444;">II. CÁC KHÓ KHĂN & VƯỚNG MẮC CHÍNH (BLOCKERS)</div>
-    <div class="blocker-box">
-      <ul>
-        ${activeBlockers.map(r => {
-          const u = users.find(user => user.id === r.userId);
-          return `<li><strong>${u ? u.fullName : 'Thành viên'} (${departments.find(d => d.id === u.departmentId)?.name || 'R&D'}):</strong> ${r.blockers.replace(/\n/g, ' ')}</li>`;
-        }).join('')}
-      </ul>
+    <div class="section-title">I. ĐÁNH GIÁ TỔNG QUAN TIẾN ĐỘ CỦA BAN QUẢN LÝ / ADMIN</div>
+    <div class="content-box" style="white-space: pre-wrap; background-color: #f9f9f9; padding: 10px; border-left: 3px solid #000;">
+      ${remarks || 'Chưa có đánh giá/chỉ đạo cụ thể từ quản trị viên cho tuần này.'}
     </div>
-    ` : ''}
 
-    <div class="section-heading">III. BÁO CÁO CHI TIẾT THEO PHÒNG BAN</div>
-    <table>
+    <div class="section-title">II. CẢNH BÁO ĐIỂM NGHẼN & KHÓ KHĂN KỸ THUẬT (BLOCKERS)</div>
+    <div class="content-box">
+      ${activeBlockers.length > 0 ? `
+        <ul>
+          ${activeBlockers.map(b => `<li><strong>${b.userName}:</strong> ${b.text}</li>`).join('')}
+        </ul>
+      ` : 'Không ghi nhận vướng mắc kỹ thuật lớn nào từ đội ngũ.'}
+    </div>
+
+    <div class="section-title">III. KẾT QUẢ ĐẠT ĐƯỢC VÀ KẾ HOẠCH CHI TIẾT THEO KHỐI</div>
+    <table class="data-table">
       <thead>
         <tr>
-          <th style="width: 25%">Phòng ban & Nhân sự</th>
+          <th style="width: 25%">Khối chuyên môn</th>
           <th style="width: 40%">Công việc đã hoàn thành (Done)</th>
           <th style="width: 35%">Kế hoạch tuần tiếp theo (Planned)</th>
         </tr>
       </thead>
       <tbody>
-        ${departments.map(dept => {
-          const deptReports = reports.filter(r => {
-            const u = users.find(user => user.id === r.userId);
-            return u && u.departmentId === dept.id;
-          });
-          if (deptReports.length === 0) return '';
-          
+        ${Object.entries(departmentsSummary).map(([deptName, data]) => {
+          if (data.submittedUsers.length === 0) return '';
           return `
-          <tr>
-            <td>
-              <strong>${dept.name}</strong><br/>
-              <span style="font-size: 9pt; color: #6b7280; font-style: italic;">
-                Thành viên: ${deptReports.map(r => users.find(u => u.id === r.userId)?.fullName).join(', ')}
-              </span>
-            </td>
-            <td>
-              <ul>
-                ${deptReports.map(r => {
-                  const u = users.find(user => user.id === r.userId);
-                  return r.doneContent.split('\n').filter(p => p.trim().length > 0).map(p => `<li>[${u ? u.fullName : 'NV'}] ${p}</li>`).join('');
-                }).join('')}
-              </ul>
-            </td>
-            <td>
-              <ul>
-                ${deptReports.map(r => {
-                  const u = users.find(user => user.id === r.userId);
-                  return r.plannedContent.split('\n').filter(p => p.trim().length > 0).map(p => `<li>[${u ? u.fullName : 'NV'}] ${p}</li>`).join('');
+            <tr>
+              <td>
+                <strong>${deptName}</strong><br/>
+                <span style="font-size: 9pt; color: #555; font-style: italic;">
+                  Nhân sự: ${data.submittedUsers.join(', ')}
+                </span>
+              </td>
+              <td>
+                <ul>
+                  ${data.donePoints.map(p => `<li>${p}</li>`).join('')}
+                </ul>
+              </td>
+              <td>
+                <ul>
+                  ${data.plannedPoints.map(p => `<li>${p}</li>`).join('')}
+                </ul>
+              </td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+
+    <div class="section-title">IV. TÌNH HÌNH PHÁT SINH KINH PHÍ & VẬN HÀNH PHÒNG LAB</div>
+    <div class="content-box">
+      <ul>
+        <li><strong>Tổng ngân sách linh kiện đã phê duyệt mua:</strong> ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalApprovedBOMCost)}</li>
+        <li><strong>Tổng ngân sách linh kiện đang chờ phê duyệt:</strong> ${new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalPendingBOMCost)}</li>
+        <li><strong>Số lượng thiết bị đang mượn hoạt động tại Lab:</strong> ${getAll('asset_loans').filter(l => l.status === 'Approved').length} thiết bị</li>
+        <li><strong>Số lượt đăng ký sử dụng phòng/thiết bị đo EMC, in 3D trong tuần:</strong> ${getAll('lab_bookings').length} lượt</li>
+      </ul>
+    </div>
+
+    <table class="signature-table">
+      <tr>
+        <td>
+          <strong>NGƯỜI LẬP BÁO CÁO</strong><br/>
+          <span style="font-style: italic; font-size: 9pt;">(Ký, ghi rõ họ tên)</span>
+          <br/><br/><br/><br/><br/>
+          <strong>Quản trị viên R&D</strong>
+        </td>
+        <td>
+          <strong>BAN GIÁM ĐỐC TRUNG TÂM DUYỆT</strong><br/>
+          <span style="font-style: italic; font-size: 9pt;">(Ký, phê duyệt chỉ đạo)</span>
+          <br/><br/><br/><br/><br/>
+          <strong>Giám đốc Trung tâm</strong>
+        </td>
+      </tr>
+    </table>
+  </body>
+  </html>
+  `;
+
+  res.setHeader('Content-Type', 'application/msword');
+  res.setHeader('Content-Disposition', `attachment; filename="Bao_Cao_Tuan_${weekStartDate}.doc"`);
+  res.send(html);
+});ame : 'NV'}] ${p}</li>`).join('');
                 }).join('')}
               </ul>
             </td>

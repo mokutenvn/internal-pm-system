@@ -63,9 +63,11 @@ const defaultDb = {
     { id: 1, userId: 4, projectId: 2, date: '2026-07-09', completedWork: 'Layout xong mạch nguồn 5V.', planToday: 'Tiếp tục đi dây khối vi điều khiển.', blockers: 'Linh kiện IC nguồn đang đợi mua.' }
   ],
   goals: [
-    { id: 1, userId: 4, type: 'day', content: 'Hoàn thành vẽ footprint cho ESP32 và cảm biến bụi.', progress: 100, targetDate: '2026-07-09' },
-    { id: 2, userId: 4, type: 'week', content: 'Hoàn thành sơ đồ nguyên lý và layout mạch PCB v1.0.', progress: 50, targetDate: '2026-07-12' },
-    { id: 3, userId: 4, type: 'month', content: 'Lắp ráp và chạy thử nghiệm thiết bị phần cứng v1.0.', progress: 30, targetDate: '2026-07-31' }
+    { id: 1, userId: 4, type: 'day', content: 'Hoàn thành vẽ footprint cho ESP32 và cảm biến bụi.', progress: 100, status: 'Completed', targetDate: '2026-07-09', createdAt: '2026-07-09' },
+    { id: 2, userId: 4, type: 'week', content: 'Hoàn thành sơ đồ nguyên lý và layout mạch PCB v1.0.', progress: 50, status: 'Pending', targetDate: '2026-07-12', createdAt: '2026-07-06' },
+    { id: 3, userId: 4, type: 'month', content: 'Lắp ráp và chạy thử nghiệm thiết bị phần cứng v1.0.', progress: 30, status: 'Pending', targetDate: '2026-07-31', createdAt: '2026-07-01' },
+    { id: 4, userId: 5, type: 'day', content: 'Viết firmware đọc cảm biến gia tốc MPU6050 qua I2C.', progress: 20, status: 'Overdue', targetDate: '2026-07-08', createdAt: '2026-07-08' },
+    { id: 5, userId: 3, type: 'week', content: 'Thiết kế 3D hoàn chỉnh vỏ hộp chống nước cho Drone.', progress: 100, status: 'Completed', targetDate: '2026-07-05', createdAt: '2026-06-29' }
   ],
   reports: [
     { id: 1, userId: 4, weekStartDate: '2026-07-06', doneContent: 'Đã vẽ schematic ESP32 và cảm biến. Viết xong driver I2C đọc SHT30.', plannedContent: 'Layout mạch PCB nguồn và khối MCU. Hàn mạch mẫu.', blockers: 'Linh kiện IC nguồn đang đợi duyệt mua.' }
