@@ -1,15 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-  --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-family: 'Inter', 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   
   /* Color Palette - Premium Dark Theme */
   --bg-primary: #090d16;
   --bg-secondary: #111827;
   --bg-tertiary: #1f2937;
-  --bg-glass: rgba(17, 24, 39, 0.7);
-  --border-glass: rgba(255, 255, 255, 0.06);
-  --border-glow: rgba(99, 102, 241, 0.15);
+  --bg-glass: rgba(17, 24, 39, 0.75);
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --border-glow: rgba(99, 102, 241, 0.2);
   
   --text-primary: #f3f4f6;
   --text-secondary: #9ca3af;
@@ -36,7 +36,7 @@
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-glow: 0 0 20px 2px rgba(99, 102, 241, 0.15);
+  --shadow-glow: 0 0 20px 2px rgba(99, 102, 241, 0.2);
   
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -45,6 +45,62 @@
   
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Badge and Tag variables for Dark Theme */
+  --badge-low-bg: rgba(59, 130, 246, 0.15);
+  --badge-low-text: #93c5fd;
+  --badge-medium-bg: rgba(245, 158, 11, 0.15);
+  --badge-medium-text: #fde047;
+  --badge-high-bg: rgba(239, 68, 68, 0.15);
+  --badge-high-text: #fca5a5;
+  
+  --badge-active-bg: rgba(245, 158, 11, 0.15);
+  --badge-active-text: #fde047;
+  --badge-done-bg: rgba(16, 185, 129, 0.15);
+  --badge-done-text: #a7f3d0;
+  --badge-overdue-bg: rgba(239, 68, 68, 0.15);
+  --badge-overdue-text: #fca5a5;
+
+  --dept-tag-bg: rgba(99, 102, 241, 0.12);
+  --dept-tag-text: #a5b4fc;
+  --dept-tag-border: rgba(99, 102, 241, 0.25);
+}
+
+:root.light-theme {
+  /* Color Palette - Premium Light Theme */
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e2e8f0;
+  --bg-glass: rgba(255, 255, 255, 0.85);
+  --border-glass: rgba(15, 23, 42, 0.08);
+  --border-glow: rgba(99, 102, 241, 0.15);
+  
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  
+  --accent-glow: rgba(99, 102, 241, 0.25);
+  --shadow-glow: 0 0 20px 2px rgba(99, 102, 241, 0.08);
+  --bg-gradient: radial-gradient(circle at 100% 0%, #e0e7ff 0%, #f8fafc 50%);
+
+  /* Badge and Tag variables for Light Theme */
+  --badge-low-bg: rgba(37, 99, 235, 0.1);
+  --badge-low-text: #1d4ed8;
+  --badge-medium-bg: rgba(217, 119, 6, 0.1);
+  --badge-medium-text: #b45309;
+  --badge-high-bg: rgba(220, 38, 38, 0.1);
+  --badge-high-text: #b91c1c;
+
+  --badge-active-bg: rgba(217, 119, 6, 0.1);
+  --badge-active-text: #b45309;
+  --badge-done-bg: rgba(5, 150, 105, 0.1);
+  --badge-done-text: #047857;
+  --badge-overdue-bg: rgba(220, 38, 38, 0.1);
+  --badge-overdue-text: #b91c1c;
+
+  --dept-tag-bg: rgba(79, 70, 229, 0.08);
+  --dept-tag-text: #4338ca;
+  --dept-tag-border: rgba(79, 70, 229, 0.2);
 }
 
 * {
@@ -61,8 +117,8 @@ body {
   color: var(--text-primary);
   min-height: 100vh;
   overflow-x: hidden;
-  line-height: 1.5;
-  font-size: 18.5px;
+  line-height: 1.6;
+  font-size: 17.5px;
 }
 
 /* Scrollbar Styling */
@@ -84,8 +140,9 @@ body {
 /* Typography Utility */
 h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
-  letter-spacing: -0.025em;
-  color: #fff;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+  line-height: 1.35;
 }
 
 /* Glassmorphism Card base */
@@ -100,7 +157,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .glass-card:hover {
-  border-color: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.25);
   box-shadow: var(--shadow-lg), var(--shadow-glow);
 }
 
@@ -108,18 +165,18 @@ h1, h2, h3, h4, h5, h6 {
 .input-field {
   width: 100%;
   padding: 12px 16px;
-  background: rgba(17, 24, 39, 0.8);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-md);
-  color: #fff;
-  font-size: 0.95rem;
+  color: var(--text-primary);
+  font-size: 1rem;
   transition: all var(--transition-fast);
   outline: none;
 }
 
 .input-field:focus {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
 }
 
 .input-label {
@@ -138,8 +195,8 @@ h1, h2, h3, h4, h5, h6 {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 14px 28px;
-  font-size: 1.1rem;
+  padding: 12px 24px;
+  font-size: 1rem;
   font-weight: 600;
   border-radius: var(--radius-md);
   border: none;
@@ -149,13 +206,13 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .btn:active {
-  transform: scale(0.95) !important;
+  transform: scale(0.96) !important;
 }
 
 .btn-primary {
   background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
   position: relative;
   overflow: hidden;
 }
@@ -164,14 +221,14 @@ h1, h2, h3, h4, h5, h6 {
   content: '';
   position: absolute;
   top: 0; left: 0; width: 100%; height: 100%;
-  background: linear-gradient(rgba(255,255,255,0.1), transparent);
+  background: linear-gradient(rgba(255,255,255,0.12), transparent);
   opacity: 0;
   transition: opacity 0.2s ease;
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.5);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.55);
 }
 
 .btn-primary:hover::after {
@@ -204,6 +261,31 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
 }
 
+/* Specialized Manager Approve/Decline actions */
+.btn-success-approve {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+  font-weight: 700;
+}
+
+.btn-success-approve:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.45);
+}
+
+.btn-danger-decline {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
+  font-weight: 700;
+}
+
+.btn-danger-decline:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.45);
+}
+
 /* Badges */
 .badge {
   display: inline-flex;
@@ -216,13 +298,13 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: 0.05em;
 }
 
-.badge-low { background: rgba(59, 130, 246, 0.15); color: #93c5fd; }
-.badge-medium { background: rgba(245, 158, 11, 0.15); color: #fde047; }
-.badge-high { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+.badge-low { background: var(--badge-low-bg); color: var(--badge-low-text); }
+.badge-medium { background: var(--badge-medium-bg); color: var(--badge-medium-text); }
+.badge-high { background: var(--badge-high-bg); color: var(--badge-high-text); }
 
-.badge-active { background: rgba(245, 158, 11, 0.15); color: #fde047; }
-.badge-done { background: rgba(16, 185, 129, 0.15); color: #a7f3d0; }
-.badge-overdue { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+.badge-active { background: var(--badge-active-bg); color: var(--badge-active-text); }
+.badge-done { background: var(--badge-done-bg); color: var(--badge-done-text); }
+.badge-overdue { background: var(--badge-overdue-bg); color: var(--badge-overdue-text); }
 
 /* Custom Progress Slider */
 .progress-container {
@@ -267,13 +349,13 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Department specific tags */
 .dept-tag {
-  background: rgba(99, 102, 241, 0.1);
-  color: #818cf8;
-  padding: 2px 8px;
+  background: var(--dept-tag-bg);
+  color: var(--dept-tag-text);
+  padding: 3px 9px;
   border-radius: 4px;
   font-size: 0.75rem;
   font-weight: 600;
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  border: 1px solid var(--dept-tag-border);
 }
 
 @keyframes pulseGlow {
@@ -291,3 +373,4 @@ h1, h2, h3, h4, h5, h6 {
 .btn-important-pulse {
   animation: pulseGlow 2s infinite;
 }
+

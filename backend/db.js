@@ -25,9 +25,9 @@ const defaultDb = {
   ],
   tasks: [
     { id: 1, projectId: 2, sprintId: 1, departmentId: 1, parentTaskId: null, title: 'Layout mạch nguồn PCB v1.0', description: 'Layout đường mạch nguồn switching chuyển đổi từ pin mặt trời sang 3.3V.', assigneeId: 4, priority: 'High', status: 'In Progress', estimate: 8, dueDate: '2026-07-15', createdBy: 2 },
-    { id: 2, projectId: 2, sprintId: 1, departmentId: 1, parentTaskId: null, title: 'Hàn mạch mẫu thử nghiệm', description: 'Hàn thủ công các linh kiện SMD 0603 lên board mạch mẫu v1.0.', assigneeId: 4, priority: 'Medium', status: 'To Do', estimate: 4, dueDate: '2026-07-18', createdBy: 2 },
+    { id: 2, projectId: 2, sprintId: 1, departmentId: 1, parentTaskId: null, title: 'Hàn mạch mẫu thử nghiệm', description: 'Hàn thủ công các linh kiện SMD 0603 lên board mạch mẫu v1.0.', assigneeId: 4, priority: 'Medium', status: 'To Do', progress: 0, estimate: 4, dueDate: '2026-07-18', createdBy: 2 },
     { id: 3, projectId: 2, sprintId: 1, departmentId: 2, parentTaskId: null, title: 'Viết driver I2C đọc SHT30', description: 'Lập trình driver đọc nhiệt độ độ ẩm bằng ESP-IDF.', assigneeId: 5, priority: 'High', status: 'In Progress', estimate: 12, dueDate: '2026-07-16', createdBy: 2 },
-    { id: 4, projectId: 2, sprintId: 1, departmentId: 4, parentTaskId: null, title: 'Thiết kế 3D vỏ hộp thiết bị', description: 'Vẽ mô hình 3D vỏ ngoài chống nước tiêu chuẩn IP65 bằng Solidworks.', assigneeId: 3, priority: 'Medium', status: 'Done', estimate: 16, dueDate: '2026-07-08', createdBy: 2 }
+    { id: 4, projectId: 2, sprintId: 1, departmentId: 4, parentTaskId: null, title: 'Thiết kế 3D vỏ hộp thiết bị', description: 'Vẽ mô hình 3D vỏ ngoài chống nước tiêu chuẩn IP65 bằng Solidworks.', assigneeId: 3, priority: 'Medium', status: 'Done', progress: 100, estimate: 16, dueDate: '2026-07-08', createdBy: 2 }
   ],
   task_dependencies: [
     { id: 1, blockedTaskId: 2, blockerTaskId: 1 }

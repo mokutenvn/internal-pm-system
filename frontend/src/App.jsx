@@ -18,6 +18,7 @@ import {
   Eye,
   Sliders,
   Sun,
+  Moon,
   Calendar,
   Trash2,
   Bug,
@@ -29,7 +30,9 @@ import {
   Link,
   CalendarDays,
   Layers,
-  Settings
+  Settings,
+  Menu,
+  X
 } from 'lucide-react';
 
 const API_BASE = `http://${window.location.hostname}:5000/api`;
@@ -113,6 +116,32 @@ export default function App() {
 
   // Tab đăng nhập / đăng ký tự do
   const [isLoginTab, setIsLoginTab] = useState(true);
+  
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
+  
+  useEffect(() => {
+    if (theme === 'light') {
+      document.documentElement.classList.add('light-theme');
+    } else {
+      document.documentElement.classList.remove('light-theme');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
+  useEffect(() => {
+    if (user && user.role === 'leader' && user.departmentId) {
+      setActiveDeptTab(user.departmentId.toString());
+    }
+  }, [user]);
+
+  const [editingUser, setEditingUser] = useState(null);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [editUserPassword, setEditUserPassword] = useState('');
+
   const [registerFullName, setRegisterFullName] = useState('');
   const [registerUsername, setRegisterUsername] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
@@ -131,6 +160,26 @@ export default function App() {
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [showMemberModal, setShowMemberModal] = useState(false);
+
+  // States for interactive dashboard details and project editing
+  const [showProjectsDetailModal, setShowProjectsDetailModal] = useState(false);
+  const [showTasksDetailModal, setShowTasksDetailModal] = useState(false);
+  const [showFinishedTasksDetailModal, setShowFinishedTasksDetailModal] = useState(false);
+  const [showTodayTasksDetailModal, setShowTodayTasksDetailModal] = useState(false);
+  const [showEditProjectModal, setShowEditProjectModal] = useState(false);
+  const [editingProject, setEditingProject] = useState(null);
+
+  // Sprint 4: Dashboard Interactive Tasks states
+  const [tempProgress, setTempProgress] = useState({});
+  const [dashboardFilterProject, setDashboardFilterProject] = useState('');
+  const [dashboardFilterPriority, setDashboardFilterPriority] = useState('');
+  const [dashboardFilterAssignee, setDashboardFilterAssignee] = useState('');
+  const [dashboardFilterStatus, setDashboardFilterStatus] = useState('');
+  const [dashboardSearchQuery, setDashboardSearchQuery] = useState('');
+  const [dashboardTasksPage, setDashboardTasksPage] = useState(1);
+  const [kanbanPages, setKanbanPages] = useState({ 'Backlog': 1, 'To Do': 1, 'In Progress': 1, 'Review': 1, 'Done': 1 });
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
 
   // New R&D Modals toggle
   const [showSprintModal, setShowSprintModal] = useState(false);
@@ -203,6 +252,10 @@ export default function App() {
     }
   }, [token]);
 
+  useEffect(() => {
+    setDashboardTasksPage(1);
+  }, [dashboardFilterProject, dashboardFilterPriority, dashboardFilterAssignee, dashboardSearchQuery, dashboardFilterStatus]);
+
   // Fetch all necessary data based on role
   const fetchCoreData = async () => {
     setLoading(true);
@@ -259,10 +312,8 @@ export default function App() {
         const usersRes = await fetch(`${API_BASE}/users`, { headers });
         if (usersRes.ok) setUsersList(await usersRes.json());
         
-        if (user.role === 'admin') {
-          const pendingRes = await fetch(`${API_BASE}/users/pending`, { headers });
-          if (pendingRes.ok) setPendingUsers(await pendingRes.json());
-        }
+        const pendingRes = await fetch(`${API_BASE}/users/pending`, { headers });
+        if (pendingRes.ok) setPendingUsers(await pendingRes.json());
         
         fetchWeeklySummary(summaryWeek);
       }
@@ -324,6 +375,29 @@ export default function App() {
     setUser(null);
   };
 
+  const handleUnlinkTelegram = async () => {
+    if (!confirm("Bạn có chắc chắn muốn hủy liên kết Telegram? Bạn sẽ không nhận được thông báo cá riêng nữa.")) return;
+    try {
+      const res = await fetch(`${API_BASE}/users/unlink-telegram`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data.user);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        alert(data.message);
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Lỗi khi hủy liên kết.');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleRegister = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -356,7 +430,7 @@ export default function App() {
   };
 
   const handleApproveUser = async (userId) => {
-    const deptId = approvalDepts[userId] || '1';
+    const deptId = user.role === 'leader' ? user.departmentId.toString() : (approvalDepts[userId] || '1');
     const role = approvalRoles[userId] || 'employee';
     try {
       const res = await fetch(`${API_BASE}/users/${userId}/approve`, {
@@ -396,6 +470,34 @@ export default function App() {
         setNewProject({ name: '', description: '', status: 'Active' });
         setShowProjectModal(false);
         fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateProject = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/projects/${editingProject.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: editingProject.name,
+          description: editingProject.description,
+          status: editingProject.status
+        })
+      });
+      if (res.ok) {
+        setShowEditProjectModal(false);
+        setEditingProject(null);
+        fetchCoreData();
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Lỗi cập nhật dự án');
       }
     } catch (err) {
       console.error(err);
@@ -461,6 +563,27 @@ export default function App() {
       if (res.ok) {
         setEditingTask(null);
         fetchCoreData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteProject = async (projectId) => {
+    if (!confirm("Bạn có chắc chắn muốn xóa dự án này?")) return;
+    try {
+      const res = await fetch(`${API_BASE}/projects/${projectId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        setShowProjectsDetailModal(false);
+        fetchCoreData();
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Lỗi khi xóa dự án.');
       }
     } catch (err) {
       console.error(err);
@@ -976,6 +1099,61 @@ export default function App() {
     }
   };
 
+  const handleUpdateUser = async (e) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    try {
+      const payload = {
+        fullName: editingUser.fullName,
+        username: editingUser.username,
+        role: editingUser.role,
+        departmentId: Number(editingUser.departmentId)
+      };
+      if (editUserPassword) {
+        payload.password = editUserPassword;
+      }
+      const res = await fetch(`${API_BASE}/users/${editingUser.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        setEditingUser(null);
+        setEditUserPassword('');
+        setShowEditUserModal(false);
+        fetchCoreData();
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Cập nhật tài khoản lỗi');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDeleteUser = async (userId) => {
+    if (!confirm("Bạn chắc chắn muốn xóa tài khoản này? Thao tác này không thể hoàn tác!")) return;
+    try {
+      const res = await fetch(`${API_BASE}/users/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        fetchCoreData();
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Xóa tài khoản lỗi');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleSubmitReport = async (e) => {
     e.preventDefault();
     try {
@@ -1028,7 +1206,7 @@ export default function App() {
       
     const taskList = tasks
       .filter(t => t.assigneeId === user.id)
-      .map(t => `- [Task] ${t.title} (Tiến độ: ${t.progress}%)`)
+      .map(t => `- [Task] ${t.title} (Tiến độ: ${t.progress || 0}%)`)
       .join('\n');
 
     setNewReport(prev => ({
@@ -1120,7 +1298,7 @@ export default function App() {
         `}</style>
         <div className="login-container">
           <div className="login-header">
-            <div className="login-logo">ANTIGRAVITY PM</div>
+            <div className="login-logo">NEXUS R&D PM</div>
             <div className="login-sub">Hệ Thống Quản Lý Dự Án & Báo Cáo Nội Bộ</div>
           </div>
 
@@ -1167,8 +1345,8 @@ export default function App() {
                   required
                 />
               </div>
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '14px' }} disabled={loading}>
-                {loading ? 'Đang xác thực...' : 'Đăng Nhập'}
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '14px', fontWeight: 800, letterSpacing: '0.05em' }} disabled={loading}>
+                {loading ? 'ĐANG XÁC THỰC...' : 'ĐĂNG NHẬP'}
               </button>
             </form>
           ) : (
@@ -1206,8 +1384,8 @@ export default function App() {
                   required
                 />
               </div>
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '14px' }} disabled={loading}>
-                {loading ? 'Đang gửi đăng ký...' : 'Đăng Ký Tài Khoản'}
+              <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '14px', fontWeight: 800, letterSpacing: '0.05em' }} disabled={loading}>
+                {loading ? 'ĐANG GỬI ĐĂNG KÝ...' : 'ĐĂNG KÝ TÀI KHOẢN'}
               </button>
             </form>
           )}
@@ -1228,7 +1406,7 @@ export default function App() {
       min-height: 100vh;
     }
     .sidebar {
-      background: #0f172a;
+      background: var(--bg-secondary);
       border-right: 1px solid var(--border-glass);
       padding: 24px;
       display: flex;
@@ -1242,7 +1420,7 @@ export default function App() {
       padding: 40px;
       max-height: 100vh;
       overflow-y: auto;
-      background: radial-gradient(circle at 100% 0%, #1e1b4b 0%, #090d16 50%);
+      background: var(--bg-gradient, radial-gradient(circle at 100% 0%, #1e1b4b 0%, #090d16 50%));
     }
     .sidebar-menu {
       list-style: none;
@@ -1263,7 +1441,7 @@ export default function App() {
       transition: all var(--transition-fast);
     }
     .sidebar-item:hover, .sidebar-item.active {
-      color: #fff;
+      color: var(--text-primary);
       background: rgba(99, 102, 241, 0.15);
     }
     .sidebar-item.active {
@@ -1322,9 +1500,12 @@ export default function App() {
       background: rgba(0,0,0,0.6);
       backdrop-filter: blur(8px);
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
       z-index: 100;
+      overflow-y: auto;
+      padding: 20px 16px;
+      -webkit-overflow-scrolling: touch;
     }
     .modal-body {
       background: var(--bg-secondary);
@@ -1334,57 +1515,367 @@ export default function App() {
       border-radius: var(--radius-lg);
       padding: 28px;
       box-shadow: var(--shadow-lg);
+      margin: auto;
+    }
+    
+    /* Responsive & Mobile Design */
+    .mobile-header {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-glass);
+      position: sticky;
+      top: 0;
+      z-index: 99;
+    }
+    .mobile-menu-btn {
+      background: none;
+      border: none;
+      color: var(--text-primary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+    }
+    .mobile-close-btn {
+      display: none;
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 4px;
+    }
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      z-index: 998;
+    }
+    .goals-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .dashboard-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .dashboard-header-left h2 {
+      font-size: 1.8rem;
+    }
+    .dashboard-header-right {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    @media (max-width: 1024px) {
+      .app-layout {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 280px;
+        height: 100vh;
+        z-index: 999;
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+      }
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      .mobile-close-btn {
+        display: block;
+      }
+      .sidebar-overlay.show {
+        display: block;
+      }
+      .mobile-header {
+        display: flex;
+      }
+      .main-content {
+        padding: 20px;
+        max-height: none;
+        overflow-y: visible;
+      }
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+      }
+      .stat-card-row {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .goals-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+      .dashboard-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .dashboard-header-left h2 {
+        font-size: 1.4rem;
+      }
+      .dashboard-header-right {
+        width: 100%;
+      }
+      .dashboard-header-right > * {
+        flex-grow: 1;
+        text-align: center;
+        justify-content: center;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .stat-card-row {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .stat-card {
+        padding: 16px;
+      }
+      .glass-card {
+        padding: 16px !important;
+      }
+      .progress-bar-bg {
+        width: 40px !important;
+      }
+    }
+    
+    /* Table responsive & scroll rules */
+    .table-container {
+      overflow-x: auto;
+      width: 100%;
+      margin-bottom: 16px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .table-responsive {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.9rem;
+    }
+    .table-projects {
+      min-width: 750px;
+    }
+    .table-tasks {
+      min-width: 850px;
+    }
+    .table-lab {
+      min-width: 600px;
+    }
+    .table-procurements {
+      min-width: 950px;
+    }
+    .table-users {
+      min-width: 700px;
+    }
+
+    /* Kanban responsive scroll rules */
+    .kanban-board-container {
+      overflow-x: auto;
+      width: 100%;
+      padding-bottom: 12px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .kanban-board-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 16px;
+      align-items: start;
+      min-width: 1100px;
+    }
+    @media (max-width: 1024px) {
+      .kanban-board-grid {
+        min-width: 1000px;
+      }
     }
   `;
 
   // Compute stats helper
-  const activeTasks = tasks.filter(t => t.assigneeId === user.id && t.status !== 'Done');
-  const finishedTasks = tasks.filter(t => t.assigneeId === user.id && t.status === 'Done');
-  const myGoalsCount = goals.filter(g => g.userId === user.id).length;
+  const getVisibleTasks = () => {
+    if (!user) return [];
+    if (user.role === 'admin') return tasks;
+    if (user.role === 'leader') return tasks.filter(t => t.departmentId === user.departmentId);
+    return tasks.filter(t => t.assigneeId === user.id);
+  };
+  
+  const visibleTasks = getVisibleTasks();
+  const activeTasks = visibleTasks.filter(t => t.status !== 'Done');
+  const finishedTasks = visibleTasks.filter(t => t.status === 'Done');
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayTasks = visibleTasks.filter(t => t.dueDate === todayStr);
+
+  const getGoalsByPeriod = (period) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTime = today.getTime();
+
+    return visibleTasks.filter(t => {
+      if (!t.dueDate) return false;
+      const due = new Date(t.dueDate);
+      due.setHours(0, 0, 0, 0);
+      const dueTime = due.getTime();
+
+      const diffDays = Math.ceil((dueTime - todayTime) / (1000 * 60 * 60 * 24));
+      
+      if (period === 'day') {
+        return diffDays === 0;
+      }
+      if (period === 'week') {
+        return diffDays > 0 && diffDays <= 7;
+      }
+      if (period === 'month') {
+        return diffDays > 7 && diffDays <= 30;
+      }
+      return false;
+    });
+  };
+
+  const getRemainingDaysText = (dueDate) => {
+    if (!dueDate) return { text: 'Không có hạn', class: 'badge-low' };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTime = today.getTime();
+    const due = new Date(dueDate);
+    due.setHours(0, 0, 0, 0);
+    const dueTime = due.getTime();
+
+    const diffDays = Math.ceil((dueTime - todayTime) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) {
+      return { text: `Trễ ${Math.abs(diffDays)} ngày`, class: 'badge-high' };
+    } else if (diffDays === 0) {
+      return { text: 'Hôm nay', class: 'badge-medium' };
+    } else if (diffDays <= 3) {
+      return { text: `Còn ${diffDays} ngày`, class: 'badge-medium' };
+    } else {
+      return { text: `Còn ${diffDays} ngày`, class: 'badge-done' };
+    }
+  };
+
+  const filteredDashboardTasks = visibleTasks.filter(t => {
+    if (dashboardSearchQuery) {
+      const q = dashboardSearchQuery.toLowerCase();
+      const titleMatch = t.title && t.title.toLowerCase().includes(q);
+      const descMatch = t.description && t.description.toLowerCase().includes(q);
+      if (!titleMatch && !descMatch) return false;
+    }
+    if (dashboardFilterProject && t.projectId !== Number(dashboardFilterProject)) {
+      return false;
+    }
+    if (dashboardFilterPriority && t.priority !== dashboardFilterPriority) {
+      return false;
+    }
+    if (dashboardFilterAssignee && t.assigneeId !== Number(dashboardFilterAssignee)) {
+      return false;
+    }
+    if (dashboardFilterStatus) {
+      if (dashboardFilterStatus === 'Overdue') {
+        const isOverdue = t.status !== 'Done' && t.dueDate && t.dueDate < todayStr;
+        if (!isOverdue) return false;
+      } else if (dashboardFilterStatus === 'DueSoon') {
+        if (t.status === 'Done' || !t.dueDate) return false;
+        const due = new Date(t.dueDate);
+        due.setHours(0, 0, 0, 0);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0 || diffDays > 3) return false;
+      } else {
+        if (t.status !== dashboardFilterStatus) return false;
+      }
+    }
+    return true;
+  });
 
   return (
     <div className="app-layout">
       <style>{layoutStyle}</style>
 
+      {/* MOBILE HEADER */}
+      <div className="mobile-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }} />
+          <h3 style={{ fontSize: '1.05rem', margin: 0, letterSpacing: '0px' }}>NEXUS R&D PM</h3>
+        </div>
+        <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+          <Menu size={24} />
+        </button>
+      </div>
+
+      {/* SIDEBAR OVERLAY */}
+      <div 
+        className={`sidebar-overlay ${isMobileMenuOpen ? 'show' : ''}`} 
+        onClick={() => setIsMobileMenuOpen(false)} 
+      />
+
       {/* SIDEBAR NAVIGATION */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${isMobileMenuOpen ? 'open' : ''}`}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }} />
-            <h3 style={{ fontSize: '1.2rem', letterSpacing: '0px' }}>ANTIGRAVITY PM</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }} />
+              <h3 style={{ fontSize: '1.2rem', letterSpacing: '0px', margin: 0 }}>NEXUS R&D PM</h3>
+            </div>
+            <button 
+              className="mobile-close-btn"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              <X size={20} />
+            </button>
           </div>
 
           <ul className="sidebar-menu">
-            <li className={`sidebar-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
+            <li className={`sidebar-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}>
               <LayoutDashboard size={20} />
               <span>Bảng điều khiển</span>
             </li>
-            <li className={`sidebar-item ${activeTab === 'projects' ? 'active' : ''}`} onClick={() => setActiveTab('projects')}>
+            <li className={`sidebar-item ${activeTab === 'projects' ? 'active' : ''}`} onClick={() => { setActiveTab('projects'); setIsMobileMenuOpen(false); }}>
               <FolderKanban size={20} />
               <span>Dự án & Sprints</span>
             </li>
-            <li className={`sidebar-item ${activeTab === 'standup' ? 'active' : ''}`} onClick={() => setActiveTab('standup')}>
+            <li className={`sidebar-item ${activeTab === 'standup' ? 'active' : ''}`} onClick={() => { setActiveTab('standup'); setIsMobileMenuOpen(false); }}>
               <Activity size={20} />
               <span>Daily Standup</span>
             </li>
-            <li className={`sidebar-item ${activeTab === 'lab' ? 'active' : ''}`} onClick={() => setActiveTab('lab')}>
+            <li className={`sidebar-item ${activeTab === 'lab' ? 'active' : ''}`} onClick={() => { setActiveTab('lab'); setIsMobileMenuOpen(false); }}>
               <Boxes size={20} />
               <span>Phòng Lab & Thiết bị</span>
             </li>
-            <li className={`sidebar-item ${activeTab === 'procurements' ? 'active' : ''}`} onClick={() => setActiveTab('procurements')}>
+            <li className={`sidebar-item ${activeTab === 'procurements' ? 'active' : ''}`} onClick={() => { setActiveTab('procurements'); setIsMobileMenuOpen(false); }}>
               <ShoppingCart size={20} />
               <span>Yêu cầu Mua sắm</span>
             </li>
-            <li className={`sidebar-item ${activeTab === 'wiki' ? 'active' : ''}`} onClick={() => setActiveTab('wiki')}>
+            <li className={`sidebar-item ${activeTab === 'wiki' ? 'active' : ''}`} onClick={() => { setActiveTab('wiki'); setIsMobileMenuOpen(false); }}>
               <BookOpen size={20} />
               <span>Wiki & Nhật ký lỗi</span>
             </li>
-            <li className={`sidebar-item ${activeTab === 'reports' ? 'active' : ''}`} onClick={() => setActiveTab('reports')}>
+            <li className={`sidebar-item ${activeTab === 'reports' ? 'active' : ''}`} onClick={() => { setActiveTab('reports'); setIsMobileMenuOpen(false); }}>
               <FileText size={20} />
               <span>Báo cáo tuần</span>
             </li>
-            {user.role === 'admin' && (
-              <li className={`sidebar-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => setActiveTab('admin')}>
+            {(user.role === 'admin' || user.role === 'leader') && (
+              <li className={`sidebar-item ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => { setActiveTab('admin'); setIsMobileMenuOpen(false); }}>
                 <Users size={20} />
                 <span>Quản trị thành viên</span>
               </li>
@@ -1394,7 +1885,27 @@ export default function App() {
 
         <div>
           <div className="user-card">
-            <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{user.fullName}</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{user.fullName}</div>
+              <button 
+                onClick={toggleTheme}
+                style={{ 
+                  background: 'transparent', 
+                  border: 'none', 
+                  color: 'var(--text-secondary)', 
+                  cursor: 'pointer', 
+                  display: 'flex', 
+                  padding: '4px',
+                  borderRadius: '50%',
+                  transition: 'background var(--transition-fast)'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                title={theme === 'dark' ? 'Chuyển sang giao diện Sáng' : 'Chuyển sang giao diện Tối'}
+              >
+                {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+            </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
               <span>@{user.username}</span>
               <span className={`badge ${user.role === 'admin' ? 'badge-high' : user.role === 'leader' ? 'badge-medium' : 'badge-low'}`}>
@@ -1423,20 +1934,59 @@ export default function App() {
         {/* 1. DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
           <div className="animate-fade-in">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
+            <div className="dashboard-header">
+              <div className="dashboard-header-left">
                 <h2>Chào ngày mới, {user.fullName}!</h2>
                 <p style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>Hôm nay là {new Date().toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
               </div>
-              <button className="btn btn-secondary" onClick={fetchCoreData} disabled={loading}>
-                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                <span>Làm mới</span>
-              </button>
+              <div className="dashboard-header-right">
+                <a 
+                  href={`https://t.me/pm_system_alert_bot?start=${user.id}`} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="btn"
+                  style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px', 
+                    textDecoration: 'none', 
+                    background: user.telegramChatId ? 'rgba(16, 185, 129, 0.12)' : 'rgba(59, 130, 246, 0.12)', 
+                    border: user.telegramChatId ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(59, 130, 246, 0.3)', 
+                    color: user.telegramChatId ? '#34d399' : '#60a5fa',
+                    padding: '8px 16px',
+                    fontSize: '0.85rem'
+                  }}
+                  title={user.telegramChatId ? `Đã liên kết Telegram ID: ${user.telegramChatId}` : 'Nhấp để liên kết với Telegram Bot nhận thông báo'}
+                >
+                  <Activity size={16} />
+                  <span>{user.telegramChatId ? 'Đã liên kết Telegram' : 'Liên kết Telegram'}</span>
+                </a>
+                {user.telegramChatId && (
+                  <button 
+                    className="btn btn-danger"
+                    style={{ 
+                      padding: '8px 16px', 
+                      fontSize: '0.85rem',
+                      background: '#ef4444',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                    onClick={handleUnlinkTelegram}
+                  >
+                    Hủy liên kết
+                  </button>
+                )}
+                <button className="btn btn-secondary" onClick={fetchCoreData} disabled={loading}>
+                  <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                  <span>Làm mới</span>
+                </button>
+              </div>
             </div>
 
             {/* Quick Stats Cards */}
             <div className="stat-card-row">
-              <div className="glass-card stat-card">
+              <div className="glass-card stat-card" style={{ cursor: 'pointer' }} onClick={() => setShowProjectsDetailModal(true)}>
                 <div style={{ background: 'rgba(99, 102, 241, 0.15)', padding: '12px', borderRadius: '12px', color: 'var(--accent-primary)' }}>
                   <FolderKanban size={24} />
                 </div>
@@ -1445,7 +1995,7 @@ export default function App() {
                   <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{projects.length}</div>
                 </div>
               </div>
-              <div className="glass-card stat-card">
+              <div className="glass-card stat-card" style={{ cursor: 'pointer' }} onClick={() => setShowTasksDetailModal(true)}>
                 <div style={{ background: 'rgba(245, 158, 11, 0.15)', padding: '12px', borderRadius: '12px', color: 'var(--status-active)' }}>
                   <Clock size={24} />
                 </div>
@@ -1454,7 +2004,7 @@ export default function App() {
                   <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{activeTasks.length}</div>
                 </div>
               </div>
-              <div className="glass-card stat-card">
+              <div className="glass-card stat-card" style={{ cursor: 'pointer' }} onClick={() => setShowFinishedTasksDetailModal(true)}>
                 <div style={{ background: 'rgba(16, 185, 129, 0.15)', padding: '12px', borderRadius: '12px', color: 'var(--status-done)' }}>
                   <CheckCircle size={24} />
                 </div>
@@ -1463,16 +2013,118 @@ export default function App() {
                   <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{finishedTasks.length}</div>
                 </div>
               </div>
-              <div className="glass-card stat-card">
+              <div className="glass-card stat-card" style={{ cursor: 'pointer' }} onClick={() => setShowTodayTasksDetailModal(true)}>
                 <div style={{ background: 'rgba(168, 85, 247, 0.15)', padding: '12px', borderRadius: '12px', color: 'var(--accent-secondary)' }}>
                   <Target size={24} />
                 </div>
                 <div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Mục tiêu đề ra</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{myGoalsCount}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Mục tiêu Hôm nay</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{todayTasks.length}</div>
                 </div>
               </div>
             </div>
+
+            {/* Quick Approval Center for Managers */}
+            {(user.role === 'admin' || user.role === 'leader') && (
+              (() => {
+                const pendingLoans = assetLoansList.filter(l => l.status === 'Pending');
+                const pendingProcs = procurementsList.filter(p => p.status === 'Pending');
+                const totalPendingCount = pendingUsers.length + pendingLoans.length + pendingProcs.length;
+
+                if (totalPendingCount === 0) return null;
+
+                return (
+                  <div className="glass-card animate-fade-in" style={{ padding: '24px', marginTop: '24px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--status-active)', marginBottom: '16px' }}>
+                      <AlertCircle size={22} />
+                      Trung tâm Phê duyệt Nhanh ({totalPendingCount})
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {/* 1. Pending User Registrations */}
+                      {pendingUsers.map(u => (
+                        <div key={`user-${u.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '12px 18px', borderRadius: '12px', border: '1px solid var(--border-glass)' }}>
+                           <div>
+                             <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--accent-secondary)', fontWeight: 700 }}>Đăng ký tài khoản</span>
+                             <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.95rem', marginTop: '2px' }}>{u.fullName} <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>@{u.username}</span></div>
+                             <div style={{ display: 'flex', gap: '8px', marginTop: '6px', alignItems: 'center' }}>
+                               {user.role === 'admin' ? (
+                                 <select
+                                   className="input-field"
+                                   style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto', background: 'var(--bg-tertiary)' }}
+                                   value={approvalDepts[u.id] || '1'}
+                                   onChange={e => setApprovalDepts({ ...approvalDepts, [u.id]: e.target.value })}
+                                 >
+                                   {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                 </select>
+                               ) : (
+                                 <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginRight: '8px' }}>
+                                   Bộ phận: <strong style={{ color: 'var(--text-primary)' }}>{departments.find(d => d.id === user.departmentId)?.name}</strong>
+                                 </span>
+                               )}
+                               <select
+                                 className="input-field"
+                                 style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto', background: 'var(--bg-tertiary)' }}
+                                 value={approvalRoles[u.id] || 'employee'}
+                                 onChange={e => setApprovalRoles({ ...approvalRoles, [u.id]: e.target.value })}
+                               >
+                                 <option value="employee">Nhân viên</option>
+                                 <option value="leader">Trưởng nhóm</option>
+                                 {user.role === 'admin' && <option value="admin">Admin</option>}
+                               </select>
+                             </div>
+                           </div>
+                           <button className="btn btn-success-approve" style={{ padding: '8px 16px', fontSize: '0.85rem' }} onClick={() => handleApproveUser(u.id)}>Phê duyệt</button>
+                        </div>
+                      ))}
+
+                      {/* 2. Pending Lab Asset Loans */}
+                      {pendingLoans.map(loan => {
+                        const ast = assetsList.find(a => a.id === loan.assetId);
+                        const requester = usersList.find(u => u.id === loan.userId);
+                        return (
+                          <div key={`loan-${loan.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '12px 18px', borderRadius: '12px', border: '1px solid var(--border-glass)' }}>
+                            <div>
+                              <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--accent-primary)', fontWeight: 700 }}>Mượn thiết bị Lab</span>
+                              <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.95rem', marginTop: '2px' }}>{requester ? requester.fullName : 'Thành viên'}</div>
+                              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Thiết bị: <strong style={{ color: 'var(--text-primary)' }}>{ast ? ast.name : 'Thiết bị'}</strong> (S/N: {ast ? ast.serialNumber : 'N/A'})</div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button className="btn btn-success-approve" style={{ padding: '8px 16px', fontSize: '0.85rem' }} onClick={() => handleApproveAssetLoan(loan.id, 'Approved')}>Duyệt mượn</button>
+                              <button className="btn btn-danger" style={{ padding: '8px 16px', fontSize: '0.85rem' }} onClick={() => handleApproveAssetLoan(loan.id, 'Rejected')}>Từ chối</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* 3. Pending Procurements */}
+                      {pendingProcs.map(proc => {
+                        const reqUser = usersList.find(u => u.id === proc.userId);
+                        const proj = projects.find(p => p.id === proc.projectId);
+                        const dept = departments.find(d => d.id === proc.departmentId);
+                        return (
+                          <div key={`proc-${proc.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '12px 18px', borderRadius: '12px', border: '1px solid var(--border-glass)' }}>
+                            <div>
+                              <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: '#10b981', fontWeight: 700 }}>Đề xuất linh kiện (BOM)</span>
+                              <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.95rem', marginTop: '2px' }}>{proc.itemName}</div>
+                              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                Dự án: <strong style={{ color: 'var(--text-primary)' }}>{proj ? proj.name : 'N/A'}</strong> | Phòng: <span className="dept-tag" style={{ fontSize: '0.7rem', padding: '1px 5px' }}>{dept ? dept.name : 'Chưa phân'}</span>
+                              </div>
+                              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                Số lượng: <strong style={{ color: 'var(--text-primary)' }}>x{proc.quantity}</strong> | Tổng chi phí: <strong style={{ color: '#f59e0b' }}>{(proc.quantity * proc.estimatedPrice).toLocaleString()} đ</strong> | Yêu cầu bởi: {reqUser ? reqUser.fullName : '...'}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button className="btn btn-success-approve" style={{ padding: '8px 16px', fontSize: '0.85rem' }} onClick={() => handleApproveProcurement(proc.id, 'Approved')}>Duyệt mua</button>
+                              <button className="btn btn-danger-decline" style={{ padding: '8px 16px', fontSize: '0.85rem' }} onClick={() => handleDeleteProcurement(proc.id)}>Từ chối</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()
+            )}
 
             {/* Dashboard detail grid */}
             <div className="dashboard-grid">
@@ -1482,15 +2134,14 @@ export default function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                   <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Target size={22} style={{ color: 'var(--accent-primary)' }} />
-                    Mục tiêu công việc của tôi
+                    Mục tiêu công việc từ Hạn chót Task
                   </h3>
-                  <button className="btn btn-primary btn-important-pulse" style={{ padding: '8px 14px', fontSize: '0.85rem' }} onClick={() => setShowGoalModal(true)}>
-                    <Plus size={16} />
-                    Đặt mục tiêu
-                  </button>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    (Tự động đồng bộ từ Lịch trình)
+                  </span>
                 </div>
 
-                {goals.some(g => g.userId === user.id && g.status === 'Overdue') && (
+                {visibleTasks.some(t => t.status !== 'Done' && t.dueDate && t.dueDate < todayStr) && (
                   <div style={{
                     padding: '12px 16px',
                     background: 'rgba(239, 68, 68, 0.12)',
@@ -1505,92 +2156,43 @@ export default function App() {
                   }}>
                     <AlertTriangle size={18} style={{ color: 'var(--status-overdue)', flexShrink: 0 }} />
                     <div>
-                      <strong>CẢNH BÁO TRỄ HẠN:</strong> Bạn đang có {goals.filter(g => g.userId === user.id && g.status === 'Overdue').length} mục tiêu quá hạn chưa hoàn thành. Vui lòng cập nhật tiến độ hoặc xử lý gấp!
+                      <strong>CẢNH BÁO TRỄ HẠN:</strong> Bạn có công việc quá hạn chưa hoàn thành! Vui lòng cập nhật hoặc xử lý gấp.
                     </div>
                   </div>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+                <div className="goals-grid">
                   
                   {/* Daily Goals */}
                   <div className="goal-column">
                     <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '2px solid rgba(99, 102, 241, 0.3)', paddingBottom: '6px', fontSize: '0.9rem', color: '#818cf8' }}>
                       <Sun size={16} />
-                      HÀNG NGÀY
+                      MỤC TIÊU HÔM NAY ({getGoalsByPeriod('day').length})
                     </h4>
-                    {goals.filter(g => g.type === 'day' && g.userId === user.id).length === 0 ? (
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Chưa có mục tiêu ngày.</p>
+                    {getGoalsByPeriod('day').length === 0 ? (
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Không có task đến hạn hôm nay.</p>
                     ) : (
-                      goals.filter(g => g.type === 'day' && g.userId === user.id).map(g => {
-                        const isOverdue = g.status === 'Overdue';
-                        const borderStyle = g.progress === 100 
-                          ? '1px solid rgba(16, 185, 129, 0.4)' 
-                          : isOverdue
-                            ? '1px solid rgba(239, 68, 68, 0.5)'
-                            : g.progress > 0 
-                              ? '1px solid rgba(245, 158, 11, 0.3)' 
-                              : '1px solid var(--border-glass)';
-                        const bgStyle = g.progress === 100 
-                          ? 'rgba(16, 185, 129, 0.04)' 
-                          : isOverdue
-                            ? 'rgba(239, 68, 68, 0.06)'
-                            : g.progress > 0 
-                              ? 'rgba(245, 158, 11, 0.02)' 
-                              : 'rgba(17, 24, 39, 0.6)';
+                      getGoalsByPeriod('day').map(t => {
+                        const isOverdue = t.status !== 'Done' && t.dueDate && t.dueDate < todayStr;
+                        const assignee = usersList.find(u => u.id === t.assigneeId);
                         return (
-                          <div key={g.id} className="goal-item animate-fade-in" style={{ border: borderStyle, background: bgStyle }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 600, textDecoration: g.progress === 100 ? 'line-through' : 'none', color: g.progress === 100 ? 'var(--text-muted)' : '#fff' }}>{g.content}</div>
-                                {isOverdue && (
-                                  <span style={{ fontSize: '0.65rem', fontWeight: 'bold', color: '#ef4444', background: 'rgba(239, 68, 68, 0.15)', padding: '2px 6px', borderRadius: '4px', alignSelf: 'flex-start' }}>TRỄ HẠN</span>
-                                )}
-                              </div>
-                              <button 
-                                className="btn" 
-                                style={{ padding: '4px', background: 'transparent', border: 'none', color: 'var(--text-muted)', hoverColor: '#ef4444' }} 
-                                onClick={() => handleDeleteGoal(g.id)}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Hạn: {g.targetDate}</div>
-                            
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cập nhật:</span>
-                              <div style={{ display: 'flex', gap: '3px' }}>
-                                {[0, 50, 100].map(v => (
-                                  <button
-                                    key={v}
-                                    type="button"
-                                    style={{
-                                      padding: '2px 5px',
-                                      fontSize: '0.65rem',
-                                      fontWeight: 'bold',
-                                      background: g.progress === v ? 'var(--accent-primary)' : 'rgba(255,255,255,0.05)',
-                                      color: g.progress === v ? '#fff' : 'var(--text-secondary)',
-                                      border: 'none',
-                                      borderRadius: '3px',
-                                      cursor: 'pointer'
-                                    }}
-                                    onClick={() => handleUpdateGoalProgress(g.id, v)}
-                                  >
-                                    {v}%
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="progress-container" style={{ marginTop: '4px' }}>
-                              <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                value={g.progress}
-                                onChange={e => handleUpdateGoalProgress(g.id, e.target.value)}
-                                style={{ width: '100%', accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
-                              />
-                              <span className="progress-text" style={{ fontSize: '0.8rem' }}>{g.progress}%</span>
+                          <div 
+                            key={t.id} 
+                            className="goal-item animate-fade-in" 
+                            style={{ 
+                              border: t.status === 'Done' ? '1px solid rgba(16, 185, 129, 0.4)' : isOverdue ? '1px solid rgba(239, 68, 68, 0.5)' : '1px solid var(--border-glass)', 
+                              background: t.status === 'Done' ? 'rgba(16, 185, 129, 0.04)' : isOverdue ? 'rgba(239, 68, 68, 0.06)' : 'rgba(17, 24, 39, 0.6)',
+                              cursor: 'pointer' 
+                            }}
+                            onClick={() => setEditingTask(t)}
+                          >
+                            <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#fff' }}>{t.title}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Hạn chót: {t.dueDate}</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                              <span style={{ fontSize: '0.7rem', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>
+                                {assignee ? assignee.fullName : 'Chưa gán'}
+                              </span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: t.status === 'Done' ? 'var(--status-done)' : 'var(--accent-primary)' }}>{t.progress || 0}%</span>
                             </div>
                           </div>
                         );
@@ -1602,81 +2204,32 @@ export default function App() {
                   <div className="goal-column">
                     <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '2px solid rgba(168, 85, 247, 0.3)', paddingBottom: '6px', fontSize: '0.9rem', color: '#c084fc' }}>
                       <Calendar size={16} />
-                      HÀNG TUẦN
+                      MỤC TIÊU TUẦN NÀY ({getGoalsByPeriod('week').length})
                     </h4>
-                    {goals.filter(g => g.type === 'week' && g.userId === user.id).length === 0 ? (
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Chưa có mục tiêu tuần.</p>
+                    {getGoalsByPeriod('week').length === 0 ? (
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Không có task đến hạn tuần này.</p>
                     ) : (
-                      goals.filter(g => g.type === 'week' && g.userId === user.id).map(g => {
-                        const isOverdue = g.status === 'Overdue';
-                        const borderStyle = g.progress === 100 
-                          ? '1px solid rgba(16, 185, 129, 0.4)' 
-                          : isOverdue
-                            ? '1px solid rgba(239, 68, 68, 0.5)'
-                            : g.progress > 0 
-                              ? '1px solid rgba(245, 158, 11, 0.3)' 
-                              : '1px solid var(--border-glass)';
-                        const bgStyle = g.progress === 100 
-                          ? 'rgba(16, 185, 129, 0.04)' 
-                          : isOverdue
-                            ? 'rgba(239, 68, 68, 0.06)'
-                            : g.progress > 0 
-                              ? 'rgba(245, 158, 11, 0.02)' 
-                              : 'rgba(17, 24, 39, 0.6)';
+                      getGoalsByPeriod('week').map(t => {
+                        const isOverdue = t.status !== 'Done' && t.dueDate && t.dueDate < todayStr;
+                        const assignee = usersList.find(u => u.id === t.assigneeId);
                         return (
-                          <div key={g.id} className="goal-item animate-fade-in" style={{ border: borderStyle, background: bgStyle }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 600, textDecoration: g.progress === 100 ? 'line-through' : 'none', color: g.progress === 100 ? 'var(--text-muted)' : '#fff' }}>{g.content}</div>
-                                {isOverdue && (
-                                  <span style={{ fontSize: '0.65rem', fontWeight: 'bold', color: '#ef4444', background: 'rgba(239, 68, 68, 0.15)', padding: '2px 6px', borderRadius: '4px', alignSelf: 'flex-start' }}>TRỄ HẠN</span>
-                                )}
-                              </div>
-                              <button 
-                                className="btn" 
-                                style={{ padding: '4px', background: 'transparent', border: 'none', color: 'var(--text-muted)', hoverColor: '#ef4444' }} 
-                                onClick={() => handleDeleteGoal(g.id)}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Tuần: {g.targetDate}</div>
-                            
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cập nhật:</span>
-                              <div style={{ display: 'flex', gap: '3px' }}>
-                                {[0, 50, 100].map(v => (
-                                  <button
-                                    key={v}
-                                    type="button"
-                                    style={{
-                                      padding: '2px 5px',
-                                      fontSize: '0.65rem',
-                                      fontWeight: 'bold',
-                                      background: g.progress === v ? 'var(--accent-secondary)' : 'rgba(255,255,255,0.05)',
-                                      color: g.progress === v ? '#fff' : 'var(--text-secondary)',
-                                      border: 'none',
-                                      borderRadius: '3px',
-                                      cursor: 'pointer'
-                                    }}
-                                    onClick={() => handleUpdateGoalProgress(g.id, v)}
-                                  >
-                                    {v}%
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="progress-container" style={{ marginTop: '4px' }}>
-                              <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                value={g.progress}
-                                onChange={e => handleUpdateGoalProgress(g.id, e.target.value)}
-                                style={{ width: '100%', accentColor: 'var(--accent-secondary)', cursor: 'pointer' }}
-                              />
-                              <span className="progress-text" style={{ fontSize: '0.8rem' }}>{g.progress}%</span>
+                          <div 
+                            key={t.id} 
+                            className="goal-item animate-fade-in" 
+                            style={{ 
+                              border: t.status === 'Done' ? '1px solid rgba(16, 185, 129, 0.4)' : isOverdue ? '1px solid rgba(239, 68, 68, 0.5)' : '1px solid var(--border-glass)', 
+                              background: t.status === 'Done' ? 'rgba(16, 185, 129, 0.04)' : isOverdue ? 'rgba(239, 68, 68, 0.06)' : 'rgba(17, 24, 39, 0.6)',
+                              cursor: 'pointer' 
+                            }}
+                            onClick={() => setEditingTask(t)}
+                          >
+                            <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#fff' }}>{t.title}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Hạn chót: {t.dueDate}</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                              <span style={{ fontSize: '0.7rem', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>
+                                {assignee ? assignee.fullName : 'Chưa gán'}
+                              </span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: t.status === 'Done' ? 'var(--status-done)' : 'var(--accent-primary)' }}>{t.progress || 0}%</span>
                             </div>
                           </div>
                         );
@@ -1688,81 +2241,32 @@ export default function App() {
                   <div className="goal-column">
                     <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '2px solid rgba(16, 185, 129, 0.3)', paddingBottom: '6px', fontSize: '0.9rem', color: '#34d399' }}>
                       <Target size={16} />
-                      HÀNG THÁNG
+                      MỤC TIÊU THÁNG NÀY ({getGoalsByPeriod('month').length})
                     </h4>
-                    {goals.filter(g => g.type === 'month' && g.userId === user.id).length === 0 ? (
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Chưa có mục tiêu tháng.</p>
+                    {getGoalsByPeriod('month').length === 0 ? (
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '20px 0' }}>Không có task đến hạn tháng này.</p>
                     ) : (
-                      goals.filter(g => g.type === 'month' && g.userId === user.id).map(g => {
-                        const isOverdue = g.status === 'Overdue';
-                        const borderStyle = g.progress === 100 
-                          ? '1px solid rgba(16, 185, 129, 0.4)' 
-                          : isOverdue
-                            ? '1px solid rgba(239, 68, 68, 0.5)'
-                            : g.progress > 0 
-                              ? '1px solid rgba(245, 158, 11, 0.3)' 
-                              : '1px solid var(--border-glass)';
-                        const bgStyle = g.progress === 100 
-                          ? 'rgba(16, 185, 129, 0.04)' 
-                          : isOverdue
-                            ? 'rgba(239, 68, 68, 0.06)'
-                            : g.progress > 0 
-                              ? 'rgba(245, 158, 11, 0.02)' 
-                              : 'rgba(17, 24, 39, 0.6)';
+                      getGoalsByPeriod('month').map(t => {
+                        const isOverdue = t.status !== 'Done' && t.dueDate && t.dueDate < todayStr;
+                        const assignee = usersList.find(u => u.id === t.assigneeId);
                         return (
-                          <div key={g.id} className="goal-item animate-fade-in" style={{ border: borderStyle, background: bgStyle }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 600, textDecoration: g.progress === 100 ? 'line-through' : 'none', color: g.progress === 100 ? 'var(--text-muted)' : '#fff' }}>{g.content}</div>
-                                {isOverdue && (
-                                  <span style={{ fontSize: '0.65rem', fontWeight: 'bold', color: '#ef4444', background: 'rgba(239, 68, 68, 0.15)', padding: '2px 6px', borderRadius: '4px', alignSelf: 'flex-start' }}>TRỄ HẠN</span>
-                                )}
-                              </div>
-                              <button 
-                                className="btn" 
-                                style={{ padding: '4px', background: 'transparent', border: 'none', color: 'var(--text-muted)', hoverColor: '#ef4444' }} 
-                                onClick={() => handleDeleteGoal(g.id)}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Tháng: {g.targetDate}</div>
-                            
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cập nhật:</span>
-                              <div style={{ display: 'flex', gap: '3px' }}>
-                                {[0, 50, 100].map(v => (
-                                  <button
-                                    key={v}
-                                    type="button"
-                                    style={{
-                                      padding: '2px 5px',
-                                      fontSize: '0.65rem',
-                                      fontWeight: 'bold',
-                                      background: g.progress === v ? 'var(--status-done)' : 'rgba(255,255,255,0.05)',
-                                      color: g.progress === v ? '#fff' : 'var(--text-secondary)',
-                                      border: 'none',
-                                      borderRadius: '3px',
-                                      cursor: 'pointer'
-                                    }}
-                                    onClick={() => handleUpdateGoalProgress(g.id, v)}
-                                  >
-                                    {v}%
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="progress-container" style={{ marginTop: '4px' }}>
-                              <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                value={g.progress}
-                                onChange={e => handleUpdateGoalProgress(g.id, e.target.value)}
-                                style={{ width: '100%', accentColor: 'var(--status-done)', cursor: 'pointer' }}
-                              />
-                              <span className="progress-text" style={{ fontSize: '0.8rem' }}>{g.progress}%</span>
+                          <div 
+                            key={t.id} 
+                            className="goal-item animate-fade-in" 
+                            style={{ 
+                              border: t.status === 'Done' ? '1px solid rgba(16, 185, 129, 0.4)' : isOverdue ? '1px solid rgba(239, 68, 68, 0.5)' : '1px solid var(--border-glass)', 
+                              background: t.status === 'Done' ? 'rgba(16, 185, 129, 0.04)' : isOverdue ? 'rgba(239, 68, 68, 0.06)' : 'rgba(17, 24, 39, 0.6)',
+                              cursor: 'pointer' 
+                            }}
+                            onClick={() => setEditingTask(t)}
+                          >
+                            <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#fff' }}>{t.title}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Hạn chót: {t.dueDate}</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                              <span style={{ fontSize: '0.7rem', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>
+                                {assignee ? assignee.fullName : 'Chưa gán'}
+                              </span>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: t.status === 'Done' ? 'var(--status-done)' : 'var(--accent-primary)' }}>{t.progress || 0}%</span>
                             </div>
                           </div>
                         );
@@ -1773,57 +2277,312 @@ export default function App() {
                 </div>
               </div>
 
-              {/* My Assigned Tasks */}
+              {/* My Assigned Tasks Upgraded to Task Control Hub */}
               <div className="glass-card" style={{ padding: '24px' }}>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
-                  <Clock size={22} style={{ color: 'var(--status-active)' }} />
-                  Đầu việc được giao ({activeTasks.length})
-                </h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                    <Clock size={22} style={{ color: 'var(--status-active)' }} />
+                    Trung tâm Quản lý Công việc & Hạn chót ({filteredDashboardTasks.length})
+                  </h3>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    Quyền hạn: <strong style={{ color: 'var(--accent-primary)' }}>{user.role.toUpperCase()}</strong>
+                  </span>
+                </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {activeTasks.length === 0 ? (
+                {/* Filters Section */}
+                <div style={{
+                  display: 'flex',
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                  marginBottom: '20px',
+                  padding: '14px',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  borderRadius: '12px',
+                  border: '1px solid var(--border-glass)'
+                }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px', flexGrow: 2 }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Tìm kiếm</label>
+                    <input
+                      type="text"
+                      placeholder="Tìm tên hoặc mô tả..."
+                      className="input-field"
+                      style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                      value={dashboardSearchQuery}
+                      onChange={e => setDashboardSearchQuery(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '120px', flexGrow: 1 }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Dự án</label>
+                    <select
+                      className="input-field"
+                      style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                      value={dashboardFilterProject}
+                      onChange={e => setDashboardFilterProject(e.target.value)}
+                    >
+                      <option value="">Tất cả Dự án</option>
+                      {projects.map(p => (
+                        <option key={p.id} value={p.id}>{p.code} - {p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '120px', flexGrow: 1 }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Độ ưu tiên</label>
+                    <select
+                      className="input-field"
+                      style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                      value={dashboardFilterPriority}
+                      onChange={e => setDashboardFilterPriority(e.target.value)}
+                    >
+                      <option value="">Tất cả</option>
+                      <option value="High">Cao (High)</option>
+                      <option value="Medium">Trung bình (Medium)</option>
+                      <option value="Low">Thấp (Low)</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '130px', flexGrow: 1 }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Trạng thái / Hạn</label>
+                    <select
+                      className="input-field"
+                      style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                      value={dashboardFilterStatus}
+                      onChange={e => setDashboardFilterStatus(e.target.value)}
+                    >
+                      <option value="">Tất cả</option>
+                      <option value="Overdue">🚨 Trễ hạn</option>
+                      <option value="DueSoon">⏳ Sắp đến hạn (≤ 3 ngày)</option>
+                      <option value="Backlog">📋 Backlog</option>
+                      <option value="To Do">📌 To Do</option>
+                      <option value="In Progress">⚡ In Progress</option>
+                      <option value="Review">🔍 Review</option>
+                      <option value="Done">✅ Done</option>
+                    </select>
+                  </div>
+
+                  {(user.role === 'admin' || user.role === 'leader') && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px', flexGrow: 1 }}>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Người thực hiện</label>
+                      <select
+                        className="input-field"
+                        style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                        value={dashboardFilterAssignee}
+                        onChange={e => setDashboardFilterAssignee(e.target.value)}
+                      >
+                        <option value="">Tất cả Thành viên</option>
+                        {usersList
+                          .filter(u => user.role === 'admin' || u.departmentId === user.departmentId)
+                          .map(u => (
+                            <option key={u.id} value={u.id}>{u.fullName}</option>
+                          ))
+                        }
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tasks List with Scroll and Pagination */}
+                <div>
+                  {filteredDashboardTasks.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                      Tuyệt vời! Bạn đã hoàn thành hết các task được giao.
+                      Không tìm thấy công việc nào phù hợp với bộ lọc.
                     </div>
                   ) : (
-                    activeTasks.map(t => {
-                      const proj = projects.find(p => p.id === t.projectId);
+                    (() => {
+                      const dashboardTotalPages = Math.ceil(filteredDashboardTasks.length / 20);
+                      const dashboardPageTasks = filteredDashboardTasks.slice((dashboardTasksPage - 1) * 20, dashboardTasksPage * 20);
                       return (
-                        <div key={t.id} className="goal-item" style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid var(--border-glass)' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div>
-                              <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--accent-primary)', fontWeight: 700 }}>
-                                {proj ? proj.name : 'Dự án khác'}
-                              </span>
-                              <div style={{ fontSize: '0.9rem', fontWeight: 700, marginTop: '2px' }}>{t.title}</div>
-                            </div>
-                            <span className={`badge badge-${t.priority.toLowerCase()}`}>{t.priority}</span>
-                          </div>
-                          
-                          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t.description}</p>
-                          
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                            <span>Hạn hoàn thành:</span>
-                            <span style={{ color: new Date(t.deadline) < new Date() ? 'var(--status-overdue)' : 'var(--text-primary)', fontWeight: 600 }}>
-                              {t.deadline}
-                            </span>
+                        <>
+                          <div style={{ maxHeight: '520px', overflowY: 'auto', paddingRight: '8px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            {dashboardPageTasks.map(t => {
+                              const proj = projects.find(p => p.id === t.projectId);
+                              const assignee = usersList.find(u => u.id === t.assigneeId);
+                              const dept = departments.find(d => d.id === t.departmentId);
+                              const remDays = getRemainingDaysText(t.dueDate);
+                              const isOverdue = t.status !== 'Done' && t.dueDate && t.dueDate < todayStr;
+                              
+                              const borderStyle = t.status === 'Done'
+                                ? '1px solid rgba(16, 185, 129, 0.4)'
+                                : isOverdue
+                                  ? '1px solid rgba(239, 68, 68, 0.5)'
+                                  : '1px solid var(--border-glass)';
+
+                              const bgStyle = t.status === 'Done'
+                                ? 'rgba(16, 185, 129, 0.04)'
+                                : isOverdue
+                                  ? 'rgba(239, 68, 68, 0.06)'
+                                  : 'var(--bg-secondary)';
+
+                              return (
+                                <div key={t.id} className="goal-item animate-fade-in" style={{ border: borderStyle, background: bgStyle, padding: '18px' }}>
+                                  
+                                  {/* Header Line */}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                      <span className="dept-tag" style={{ background: 'var(--dept-tag-bg)', color: 'var(--dept-tag-text)', fontSize: '0.75rem', padding: '3px 8px' }}>
+                                        {proj ? proj.code : 'DỰ ÁN'}
+                                      </span>
+                                      <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>{t.title}</div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                      <span className={`badge badge-${t.priority.toLowerCase()}`} style={{ fontSize: '0.7rem' }}>
+                                        {t.priority}
+                                      </span>
+                                      <span className={`badge badge-${t.status === 'Done' ? 'done' : t.status === 'In Progress' ? 'active' : t.status === 'Review' ? 'medium' : 'low'}`} style={{ fontSize: '0.7rem' }}>
+                                        {t.status}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Description */}
+                                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '8px', marginBottom: '12px', lineHeight: '1.4' }}>
+                                    {t.description || 'Không có mô tả chi tiết.'}
+                                  </p>
+
+                                  {/* Task Metadata details */}
+                                  <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                                    gap: '12px',
+                                    padding: '10px 0',
+                                    borderTop: '1px solid var(--border-glass)',
+                                    borderBottom: '1px solid var(--border-glass)',
+                                    fontSize: '0.85rem'
+                                  }}>
+                                    {/* Assignee info */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <span style={{ color: 'var(--text-secondary)' }}>Người làm:</span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <div style={{
+                                          width: '24px',
+                                          height: '24px',
+                                          borderRadius: '50%',
+                                          background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          fontSize: '0.75rem',
+                                          fontWeight: 'bold',
+                                          color: '#fff'
+                                        }}>
+                                          {assignee ? assignee.fullName.charAt(0).toUpperCase() : '?'}
+                                        </div>
+                                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{assignee ? assignee.fullName : 'Chưa gán'}</span>
+                                      </div>
+                                    </div>
+
+                                    {/* Deadline info */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <span style={{ color: 'var(--text-secondary)' }}>Hạn chót:</span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t.dueDate || 'Không hạn'}</span>
+                                        <span className={`badge ${remDays.class}`} style={{ fontSize: '0.7rem', padding: '2px 6px' }}>
+                                          {remDays.text}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {/* Department info */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <span style={{ color: 'var(--text-secondary)' }}>Bộ phận:</span>
+                                      <span className="dept-tag" style={{ fontSize: '0.75rem', padding: '2px 6px' }}>{dept ? dept.name : 'Chưa phân'}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Progress Section */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '14px' }}>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', minWidth: '100px' }}>Tiến độ: <strong>{(tempProgress[t.id] !== undefined ? tempProgress[t.id] : (t.progress || 0))}%</strong></span>
+                                    <input
+                                      type="range"
+                                      min="0"
+                                      max="100"
+                                      value={tempProgress[t.id] !== undefined ? tempProgress[t.id] : (t.progress || 0)}
+                                      onChange={e => setTempProgress({ ...tempProgress, [t.id]: Number(e.target.value) })}
+                                      onMouseUp={() => handleUpdateTaskProgress(t.id, tempProgress[t.id])}
+                                      onTouchEnd={() => handleUpdateTaskProgress(t.id, tempProgress[t.id])}
+                                      style={{ flexGrow: 1, accentColor: 'var(--status-done)', cursor: 'pointer' }}
+                                    />
+                                  </div>
+
+                                  {/* Action Buttons Line */}
+                                  <div style={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: '8px', marginTop: '14px', borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '10px' }}>
+                                    {t.status !== 'Done' && (
+                                      <button
+                                        className="btn btn-success-approve"
+                                        style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                        onClick={() => handleUpdateTaskProgress(t.id, 100)}
+                                      >
+                                        <CheckCircle size={14} />
+                                        <span>Hoàn thành nhanh</span>
+                                      </button>
+                                    )}
+                                    {t.status === 'Done' && (
+                                      <button
+                                        className="btn btn-secondary"
+                                        style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                        onClick={() => handleUpdateTaskProgress(t.id, 0)}
+                                      >
+                                        <RefreshCw size={14} />
+                                        <span>Thu hồi hoàn thành</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      className="btn btn-secondary"
+                                      style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                                      onClick={() => setEditingTask(t)}
+                                    >
+                                      Sửa
+                                    </button>
+                                    {(user.role === 'admin' || user.role === 'leader' || t.createdBy === user.id) && (
+                                      <button
+                                        className="btn btn-danger"
+                                        style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#ef4444' }}
+                                        onClick={() => handleDeleteTask(t.id)}
+                                      >
+                                        Xóa
+                                      </button>
+                                    )}
+                                  </div>
+
+                                </div>
+                              );
+                            })}
                           </div>
 
-                          <div className="progress-container" style={{ marginTop: '8px' }}>
-                            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Cập nhật tiến độ:</span>
-                            <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={t.progress}
-                              onChange={e => handleUpdateTaskProgress(t.id, e.target.value)}
-                              style={{ flexGrow: 1, accentColor: 'var(--status-done)', cursor: 'pointer' }}
-                            />
-                            <span className="progress-text">{t.progress}%</span>
-                          </div>
-                        </div>
+                          {dashboardTotalPages > 1 && (
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-glass)' }}>
+                              <button 
+                                className="btn btn-secondary" 
+                                style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                                disabled={dashboardTasksPage === 1}
+                                onClick={() => setDashboardTasksPage(prev => Math.max(prev - 1, 1))}
+                              >
+                                Trước
+                              </button>
+                              {Array.from({ length: dashboardTotalPages }).map((_, idx) => (
+                                <button
+                                  key={idx}
+                                  className={`btn ${dashboardTasksPage === idx + 1 ? 'btn-primary' : 'btn-secondary'}`}
+                                  style={{ padding: '6px 12px', fontSize: '0.8rem', minWidth: '32px' }}
+                                  onClick={() => setDashboardTasksPage(idx + 1)}
+                                >
+                                  {idx + 1}
+                                </button>
+                              ))}
+                              <button 
+                                className="btn btn-secondary" 
+                                style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                                disabled={dashboardTasksPage === dashboardTotalPages}
+                                onClick={() => setDashboardTasksPage(prev => Math.min(prev + 1, dashboardTotalPages))}
+                              >
+                                Sau
+                              </button>
+                            </div>
+                          )}
+                        </>
                       );
-                    })
+                    })()
                   )}
                 </div>
               </div>
@@ -1951,6 +2710,21 @@ export default function App() {
                 >
                   {projects.map(p => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
                 </select>
+                {(user.role === 'admin' || user.role === 'leader') && selectedProjectId && (
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                    onClick={() => {
+                      const projToEdit = projects.find(p => p.id === Number(selectedProjectId));
+                      if (projToEdit) {
+                        setEditingProject(projToEdit);
+                        setShowEditProjectModal(true);
+                      }
+                    }}
+                  >
+                    Sửa
+                  </button>
+                )}
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1979,20 +2753,23 @@ export default function App() {
 
             {/* Department filters */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '12px' }}>
-              {departments.map(d => (
-                <button
-                  key={d.id}
-                  className={`btn ${activeDeptTab === d.id.toString() ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-                  onClick={() => setActiveDeptTab(d.id.toString())}
-                >
-                  {d.name}
-                </button>
-              ))}
+              {departments
+                .filter(d => user.role === 'admin' || d.id === user.departmentId)
+                .map(d => (
+                  <button
+                    key={d.id}
+                    className={`btn ${activeDeptTab === d.id.toString() ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                    onClick={() => setActiveDeptTab(d.id.toString())}
+                  >
+                    {d.name}
+                  </button>
+                ))}
             </div>
 
             {/* Kanban Board Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', alignItems: 'start' }}>
+            <div className="kanban-board-container">
+              <div className="kanban-board-grid">
               {['Backlog', 'To Do', 'In Progress', 'Review', 'Done'].map(colName => {
                 // Filter tasks for this column
                 const colTasks = tasks.filter(t => {
@@ -2017,61 +2794,103 @@ export default function App() {
                       <span className="badge badge-low" style={{ fontSize: '0.75rem' }}>{colTasks.length}</span>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      {colTasks.map(t => {
-                        const assignee = usersList.find(u => u.id === t.assigneeId);
-                        return (
-                          <div
-                            key={t.id}
-                            className="goal-item animate-fade-in"
-                            style={{
-                              background: 'rgba(17, 24, 39, 0.7)',
-                              border: t.priority === 'High' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-glass)',
-                              padding: '12px',
-                              cursor: 'pointer'
-                            }}
-                            onClick={() => setEditingTask(t)}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-                              <span className={`badge badge-${t.priority.toLowerCase()}`} style={{ fontSize: '0.65rem', padding: '2px 6px' }}>{t.priority}</span>
-                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.estimate || 0}h</span>
-                            </div>
-                            
-                            <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '6px', color: '#fff' }}>{t.title}</div>
-                            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px', lineClamp: 2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                              {t.description}
-                            </p>
+                    {(() => {
+                      const colPage = kanbanPages[colName] || 1;
+                      const totalPages = Math.ceil(colTasks.length / 20);
+                      const pageTasks = colTasks.slice((colPage - 1) * 20, colPage * 20);
 
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: 'var(--text-muted)', borderTop: '1px solid rgba(255,255,255,0.04)', paddingTop: '6px' }}>
-                              <span>@{assignee ? assignee.fullName : 'Chưa gán'}</span>
-                              <span>Hạn: {t.dueDate || 'Không'}</span>
-                            </div>
+                      return (
+                        <>
+                          <div style={{ maxHeight: '480px', overflowY: 'auto', paddingRight: '4px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {pageTasks.map(t => {
+                              const assignee = usersList.find(u => u.id === t.assigneeId);
+                              return (
+                                <div
+                                  key={t.id}
+                                  className="goal-item animate-fade-in"
+                                  style={{
+                                    background: 'var(--bg-secondary)',
+                                    border: t.priority === 'High' ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--border-glass)',
+                                    padding: '12px',
+                                    cursor: 'pointer'
+                                  }}
+                                  onClick={() => setEditingTask(t)}
+                                >
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                                    <span className={`badge badge-${t.priority.toLowerCase()}`} style={{ fontSize: '0.65rem', padding: '2px 6px' }}>{t.priority}</span>
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{t.estimate || 0}h</span>
+                                  </div>
+                                  
+                                  <div style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '6px', color: 'var(--text-primary)' }}>{t.title}</div>
+                                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '8px', lineClamp: 2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                    {t.description}
+                                  </p>
 
-                            {/* Dropdown status update */}
-                            <div style={{ marginTop: '8px', display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
-                              <select
-                                className="input-field"
-                                style={{ padding: '2px 4px', fontSize: '0.7rem', background: 'rgba(255,255,255,0.05)', border: 'none' }}
-                                value={t.status}
-                                onChange={e => handleUpdateTaskFull(t.id, { status: e.target.value })}
-                              >
-                                <option value="Backlog">Backlog</option>
-                                <option value="To Do">To Do</option>
-                                <option value="In Progress">In Progress</option>
-                                <option value="Review">Review</option>
-                                <option value="Done">Done</option>
-                              </select>
-                            </div>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-glass)', paddingTop: '6px' }}>
+                                    <span>@{assignee ? assignee.fullName : 'Chưa gán'}</span>
+                                    <span>Hạn: {t.dueDate || 'Không'}</span>
+                                  </div>
+
+                                  {/* Dropdown status update */}
+                                  <div style={{ marginTop: '8px', display: 'flex', gap: '4px' }} onClick={e => e.stopPropagation()}>
+                                    <select
+                                      className="input-field"
+                                      style={{ padding: '2px 4px', fontSize: '0.7rem', background: 'var(--bg-tertiary)', border: 'none' }}
+                                      value={t.status}
+                                      onChange={e => handleUpdateTaskFull(t.id, { status: e.target.value })}
+                                    >
+                                      <option value="Backlog">Backlog</option>
+                                      <option value="To Do">To Do</option>
+                                      <option value="In Progress">In Progress</option>
+                                      <option value="Review">Review</option>
+                                      <option value="Done">Done</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                        );
-                      })}
-                    </div>
+
+                          {totalPages > 1 && (
+                            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px', marginTop: '12px', paddingTop: '8px', borderTop: '1px solid var(--border-glass)', flexWrap: 'wrap' }}>
+                              <button
+                                className="btn btn-secondary"
+                                style={{ padding: '3px 6px', fontSize: '0.7rem' }}
+                                disabled={colPage === 1}
+                                onClick={() => setKanbanPages({ ...kanbanPages, [colName]: Math.max(colPage - 1, 1) })}
+                              >
+                                &laquo;
+                              </button>
+                              {Array.from({ length: totalPages }).map((_, idx) => (
+                                <button
+                                  key={idx}
+                                  className={`btn ${colPage === idx + 1 ? 'btn-primary' : 'btn-secondary'}`}
+                                  style={{ padding: '3px 6px', fontSize: '0.7rem', minWidth: '22px' }}
+                                  onClick={() => setKanbanPages({ ...kanbanPages, [colName]: idx + 1 })}
+                                >
+                                  {idx + 1}
+                                </button>
+                              ))}
+                              <button
+                                className="btn btn-secondary"
+                                style={{ padding: '3px 6px', fontSize: '0.7rem' }}
+                                disabled={colPage === totalPages}
+                                onClick={() => setKanbanPages({ ...kanbanPages, [colName]: Math.min(colPage + 1, totalPages) })}
+                              >
+                                &raquo;
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 );
               })}
             </div>
           </div>
-        )}
+        </div>
+      )}
 
         {/* 3. REPORTS TAB */}
         {activeTab === 'reports' && (
@@ -2338,7 +3157,8 @@ export default function App() {
               {/* Assets list */}
               <div className="glass-card" style={{ padding: '24px' }}>
                 <h3 style={{ marginBottom: '16px' }}>Kho thiết bị Lab</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+                <div className="table-container">
+                  <table className="table-responsive table-lab">
                   <thead>
                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}>
                       <th style={{ padding: '10px' }}>Tên thiết bị</th>
@@ -2365,7 +3185,7 @@ export default function App() {
                               <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.8rem' }} onClick={() => handleLoanAsset(asset.id)}>Mượn</button>
                             ) : (
                               activeLoan && (user.role === 'admin' || user.role === 'leader' || activeLoan.userId === user.id) && (
-                                <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '0.8rem', background: '#10b981' }} onClick={() => handleApproveAssetLoan(activeLoan.id, 'Returned')}>Trả thiết bị</button>
+                                <button className="btn btn-success-approve" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleApproveAssetLoan(activeLoan.id, 'Returned')}>Trả thiết bị</button>
                               )
                             )}
                           </td>
@@ -2374,6 +3194,7 @@ export default function App() {
                     })}
                   </tbody>
                 </table>
+              </div>
 
                 {/* Pending Loans (for Leader/Admin review) */}
                 {(user.role === 'admin' || user.role === 'leader') && assetLoansList.filter(l => l.status === 'Pending').length > 0 && (
@@ -2387,7 +3208,7 @@ export default function App() {
                           <div>
                             <strong>{requester ? requester.fullName : 'Thành viên'}</strong> yêu cầu mượn <strong>{ast ? ast.name : 'Thiết bị'}</strong>
                           </div>
-                          <button className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '0.8rem', background: '#10b981' }} onClick={() => handleApproveAssetLoan(loan.id, 'Approved')}>Duyệt mượn</button>
+                          <button className="btn btn-success-approve" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleApproveAssetLoan(loan.id, 'Approved')}>Duyệt mượn</button>
                         </div>
                       );
                     })}
@@ -2448,7 +3269,8 @@ export default function App() {
             </div>
 
             <div className="glass-card" style={{ padding: '24px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+              <div className="table-container">
+                <table className="table-responsive table-procurements">
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)', fontWeight: 600 }}>
                     <th style={{ padding: '12px' }}>Tên linh kiện</th>
@@ -2489,15 +3311,15 @@ export default function App() {
                           <div style={{ display: 'flex', gap: '6px' }}>
                             {proc.status === 'Pending' && (user.role === 'admin' || user.role === 'leader') && (
                               <>
-                                <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#10b981' }} onClick={() => handleApproveProcurement(proc.id, 'Approved')}>Duyệt</button>
-                                <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#ef4444' }} onClick={() => handleDeleteProcurement(proc.id)}>Từ chối</button>
+                                <button className="btn btn-success-approve" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleApproveProcurement(proc.id, 'Approved')}>Duyệt</button>
+                                <button className="btn btn-danger-decline" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleDeleteProcurement(proc.id)}>Từ chối</button>
                               </>
                             )}
                             {proc.status === 'Approved' && (user.role === 'admin' || user.role === 'leader') && (
-                              <button className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => handleApproveProcurement(proc.id, 'Ordered')}>Đã Đặt Hàng</button>
+                              <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleApproveProcurement(proc.id, 'Ordered')}>Đã Đặt Hàng</button>
                             )}
                             {proc.status === 'Ordered' && (proc.userId === user.id || user.role === 'admin' || user.role === 'leader') && (
-                              <button className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '0.75rem', background: '#10b981' }} onClick={() => handleApproveProcurement(proc.id, 'Received')}>Đã Về Kho</button>
+                              <button className="btn btn-success-approve" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleApproveProcurement(proc.id, 'Received')}>Đã Về Kho</button>
                             )}
                             {(proc.userId === user.id || user.role === 'admin') && (
                               <button className="btn" style={{ padding: '4px', background: 'transparent', color: 'var(--text-muted)' }} onClick={() => handleDeleteProcurement(proc.id)}>
@@ -2513,7 +3335,8 @@ export default function App() {
               </table>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
         {/* 2.4. WIKI & KNOWLEDGE TAB */}
         {activeTab === 'wiki' && (
@@ -2621,14 +3444,17 @@ export default function App() {
         )}
 
         {/* 4. ADMIN TAB */}
-        {activeTab === 'admin' && user.role === 'admin' && (
+        {activeTab === 'admin' && (user.role === 'admin' || user.role === 'leader') && (
           <div className="animate-fade-in">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <div>
                 <h2>Quản trị Thành viên & Phân quyền</h2>
-                <p style={{ color: 'var(--text-secondary)' }}>Quản lý danh sách nhân sự của công ty và cấp tài khoản mới.</p>
+                <p style={{ color: 'var(--text-secondary)' }}>Quản lý danh sách nhân sự của bộ phận và cấp tài khoản mới.</p>
               </div>
-              <button className="btn btn-primary" onClick={() => setShowMemberModal(true)}>
+              <button className="btn btn-primary" onClick={() => {
+                setNewMember({ username: '', password: '', fullName: '', role: 'employee', departmentId: user.departmentId ? user.departmentId.toString() : '1' });
+                setShowMemberModal(true);
+              }}>
                 <UserPlus size={16} />
                 Thêm Thành viên
               </button>
@@ -2640,8 +3466,8 @@ export default function App() {
                   <AlertCircle size={22} />
                   Tài khoản đang chờ phê duyệt ({pendingUsers.length})
                 </h3>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+                <div className="table-container">
+                  <table className="table-responsive table-users">
                     <thead>
                       <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)', fontWeight: 600 }}>
                         <th style={{ padding: '12px' }}>Họ và tên</th>
@@ -2657,14 +3483,20 @@ export default function App() {
                           <td style={{ padding: '12px', fontWeight: 600 }}>{u.fullName}</td>
                           <td style={{ padding: '12px' }}>@{u.username}</td>
                           <td style={{ padding: '12px' }}>
-                            <select
-                              className="input-field"
-                              style={{ padding: '6px 12px', fontSize: '0.85rem', width: 'auto' }}
-                              value={approvalDepts[u.id] || '1'}
-                              onChange={e => setApprovalDepts({ ...approvalDepts, [u.id]: e.target.value })}
-                            >
-                              {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                            </select>
+                            {user.role === 'admin' ? (
+                              <select
+                                className="input-field"
+                                style={{ padding: '6px 12px', fontSize: '0.85rem', width: 'auto' }}
+                                value={approvalDepts[u.id] || '1'}
+                                onChange={e => setApprovalDepts({ ...approvalDepts, [u.id]: e.target.value })}
+                              >
+                                {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                              </select>
+                            ) : (
+                              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                {departments.find(d => d.id === user.departmentId)?.name}
+                              </span>
+                            )}
                           </td>
                           <td style={{ padding: '12px' }}>
                             <select
@@ -2675,14 +3507,14 @@ export default function App() {
                             >
                               <option value="employee">Nhân viên (Employee)</option>
                               <option value="leader">Trưởng nhóm (Leader)</option>
-                              <option value="admin">Quản trị viên (Admin)</option>
+                              {user.role === 'admin' && <option value="admin">Quản trị viên (Admin)</option>}
                             </select>
                           </td>
                           <td style={{ padding: '12px' }}>
                             <button
                               type="button"
-                              className="btn btn-primary"
-                              style={{ padding: '6px 12px', fontSize: '0.8rem', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}
+                              className="btn btn-success-approve"
+                              style={{ padding: '8px 16px', fontSize: '0.85rem' }}
                               onClick={() => handleApproveUser(u.id)}
                             >
                               Phê duyệt
@@ -2697,13 +3529,15 @@ export default function App() {
             )}
 
             <div className="glass-card" style={{ padding: '24px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+              <div className="table-container">
+                <table className="table-responsive table-users">
                 <thead>
                   <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)', fontWeight: 600 }}>
                     <th style={{ padding: '12px' }}>Họ và tên</th>
                     <th style={{ padding: '12px' }}>Username</th>
                     <th style={{ padding: '12px' }}>Vai trò</th>
                     <th style={{ padding: '12px' }}>Phòng ban</th>
+                    <th style={{ padding: '12px', textAlign: 'center' }}>Hành động</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2721,13 +3555,40 @@ export default function App() {
                           {departments.find(d => d.id === u.departmentId)?.name || 'Chưa phân phòng'}
                         </span>
                       </td>
+                      <td style={{ padding: '14px 12px', textAlign: 'center' }}>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                          {(user.role === 'admin' || u.id === user.id || (user.role === 'leader' && u.role === 'employee' && u.departmentId === user.departmentId)) && (
+                            <button 
+                              className="btn btn-secondary" 
+                              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                              onClick={() => {
+                                setEditingUser({ ...u });
+                                setEditUserPassword('');
+                                setShowEditUserModal(true);
+                              }}
+                            >
+                              Sửa
+                            </button>
+                          )}
+                          {u.id !== user.id && (user.role === 'admin' || (user.role === 'leader' && u.role === 'employee' && u.departmentId === user.departmentId)) && (
+                            <button 
+                              className="btn btn-danger" 
+                              style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                              onClick={() => handleDeleteUser(u.id)}
+                            >
+                              Xóa
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
       </main>
 
@@ -3006,6 +3867,13 @@ export default function App() {
               e.preventDefault();
               handleUpdateTaskFull(editingTask.id, editingTask);
             }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              {!(user.role === 'admin' || user.role === 'leader') && (
+                <div style={{ padding: '8px 12px', background: 'rgba(99, 102, 241, 0.12)', border: '1px solid rgba(99, 102, 241, 0.25)', borderRadius: '8px', fontSize: '0.8rem', color: '#a5b4fc' }}>
+                  ℹ️ Bạn đang xem ở chế độ Nhân viên. Chỉ có thể cập nhật Tiến độ & Trạng thái của công việc.
+                </div>
+              )}
+
               <div>
                 <label className="input-label">Tên công việc</label>
                 <input
@@ -3014,6 +3882,8 @@ export default function App() {
                   value={editingTask.title}
                   onChange={e => setEditingTask({ ...editingTask, title: e.target.value })}
                   required
+                  disabled={!(user.role === 'admin' || user.role === 'leader')}
+                  style={!(user.role === 'admin' || user.role === 'leader') ? { opacity: 0.7, cursor: 'not-allowed' } : {}}
                 />
               </div>
               <div>
@@ -3023,6 +3893,8 @@ export default function App() {
                   rows="3"
                   value={editingTask.description}
                   onChange={e => setEditingTask({ ...editingTask, description: e.target.value })}
+                  disabled={!(user.role === 'admin' || user.role === 'leader')}
+                  style={!(user.role === 'admin' || user.role === 'leader') ? { opacity: 0.7, cursor: 'not-allowed' } : {}}
                 />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -3032,6 +3904,8 @@ export default function App() {
                     className="input-field"
                     value={editingTask.sprintId || ''}
                     onChange={e => setEditingTask({ ...editingTask, sprintId: e.target.value ? Number(e.target.value) : null })}
+                    disabled={!(user.role === 'admin' || user.role === 'leader')}
+                    style={!(user.role === 'admin' || user.role === 'leader') ? { opacity: 0.7, cursor: 'not-allowed' } : {}}
                   >
                     <option value="">-- Không thuộc Sprint --</option>
                     {sprints.filter(s => s.projectId === editingTask.projectId).map(s => (
@@ -3046,6 +3920,8 @@ export default function App() {
                     value={editingTask.departmentId}
                     onChange={e => setEditingTask({ ...editingTask, departmentId: Number(e.target.value) })}
                     required
+                    disabled={!(user.role === 'admin' || user.role === 'leader')}
+                    style={!(user.role === 'admin' || user.role === 'leader') ? { opacity: 0.7, cursor: 'not-allowed' } : {}}
                   >
                     {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
@@ -3059,6 +3935,8 @@ export default function App() {
                     value={editingTask.assigneeId}
                     onChange={e => setEditingTask({ ...editingTask, assigneeId: Number(e.target.value) })}
                     required
+                    disabled={!(user.role === 'admin' || user.role === 'leader')}
+                    style={!(user.role === 'admin' || user.role === 'leader') ? { opacity: 0.7, cursor: 'not-allowed' } : {}}
                   >
                     {usersList.map(u => <option key={u.id} value={u.id}>{u.fullName}</option>)}
                   </select>
@@ -3070,6 +3948,8 @@ export default function App() {
                     className="input-field"
                     value={editingTask.estimate || 0}
                     onChange={e => setEditingTask({ ...editingTask, estimate: Number(e.target.value) })}
+                    disabled={!(user.role === 'admin' || user.role === 'leader')}
+                    style={!(user.role === 'admin' || user.role === 'leader') ? { opacity: 0.7, cursor: 'not-allowed' } : {}}
                   />
                 </div>
               </div>
@@ -3082,14 +3962,38 @@ export default function App() {
                     value={editingTask.dueDate || ''}
                     onChange={e => setEditingTask({ ...editingTask, dueDate: e.target.value })}
                     required
+                    disabled={!(user.role === 'admin' || user.role === 'leader')}
+                    style={!(user.role === 'admin' || user.role === 'leader') ? { opacity: 0.7, cursor: 'not-allowed' } : {}}
                   />
                 </div>
                 <div>
-                  <label className="input-label">Trạng thái</label>
+                  <label className="input-label">Độ ưu tiên</label>
+                  <select
+                    className="input-field"
+                    value={editingTask.priority}
+                    onChange={e => setEditingTask({ ...editingTask, priority: e.target.value })}
+                    disabled={!(user.role === 'admin' || user.role === 'leader')}
+                    style={!(user.role === 'admin' || user.role === 'leader') ? { opacity: 0.7, cursor: 'not-allowed' } : {}}
+                  >
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '16px' }}>
+                <div>
+                  <label className="input-label" style={{ color: 'var(--status-active)' }}>Trạng thái công việc</label>
                   <select
                     className="input-field"
                     value={editingTask.status}
-                    onChange={e => setEditingTask({ ...editingTask, status: e.target.value })}
+                    onChange={e => {
+                      const newStatus = e.target.value;
+                      const updates = { status: newStatus };
+                      if (newStatus === 'Done') updates.progress = 100;
+                      setEditingTask({ ...editingTask, ...updates });
+                    }}
                   >
                     <option value="Backlog">Backlog</option>
                     <option value="To Do">To Do</option>
@@ -3098,8 +4002,29 @@ export default function App() {
                     <option value="Done">Done</option>
                   </select>
                 </div>
+                <div>
+                  <label className="input-label" style={{ color: 'var(--status-done)' }}>Tiến độ ({editingTask.progress || 0}%)</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px' }}>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={editingTask.progress || 0}
+                      onChange={e => {
+                        const newProg = Number(e.target.value);
+                        const updates = { progress: newProg };
+                        if (newProg === 100) updates.status = 'Done';
+                        else if (newProg > 0 && editingTask.status === 'To Do') updates.status = 'In Progress';
+                        setEditingTask({ ...editingTask, ...updates });
+                      }}
+                      style={{ flexGrow: 1, accentColor: 'var(--status-done)', cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '0.95rem', fontWeight: 'bold', minWidth: '40px', textAlign: 'right' }}>{editingTask.progress || 0}%</span>
+                  </div>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '14px' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setEditingTask(null)}>Hủy</button>
                 <button type="submit" className="btn btn-primary">Cập nhật Task</button>
               </div>
@@ -3666,7 +4591,7 @@ export default function App() {
                   >
                     <option value="employee">Nhân viên (Employee)</option>
                     <option value="leader">Trưởng nhóm (Leader)</option>
-                    <option value="admin">Quản trị viên (Admin)</option>
+                    {user.role === 'admin' && <option value="admin">Quản trị viên (Admin)</option>}
                   </select>
                 </div>
                 <div>
@@ -3675,14 +4600,449 @@ export default function App() {
                     className="input-field"
                     value={newMember.departmentId}
                     onChange={e => setNewMember(prev => ({ ...prev, departmentId: e.target.value }))}
+                    disabled={user.role !== 'admin'}
                   >
-                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    {user.role === 'admin' ? (
+                      departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)
+                    ) : (
+                      <option value={user.departmentId}>
+                        {departments.find(d => d.id === user.departmentId)?.name}
+                      </option>
+                    )}
                   </select>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowMemberModal(false)}>Hủy</button>
                 <button type="submit" className="btn btn-primary">Thêm</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Member Modal */}
+      {showEditUserModal && editingUser && (
+        <div className="modal-overlay" onClick={() => setShowEditUserModal(false)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Chỉnh sửa thông tin Thành viên</h3>
+            <form onSubmit={handleUpdateUser} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="input-label">Họ và tên</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={editingUser.fullName}
+                  onChange={e => setEditingUser({ ...editingUser, fullName: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Tên đăng nhập (Username)</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={editingUser.username}
+                  onChange={e => setEditingUser({ ...editingUser, username: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Mật khẩu mới (Bỏ trống nếu không đổi)</label>
+                <input
+                  type="password"
+                  className="input-field"
+                  placeholder="Nhập mật khẩu mới..."
+                  value={editUserPassword}
+                  onChange={e => setEditUserPassword(e.target.value)}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Vai trò</label>
+                  <select
+                    className="input-field"
+                    value={editingUser.role}
+                    onChange={e => setEditingUser({ ...editingUser, role: e.target.value })}
+                  >
+                    <option value="employee">Nhân viên (Employee)</option>
+                    <option value="leader">Trưởng nhóm (Leader)</option>
+                    {user.role === 'admin' && <option value="admin">Quản trị viên (Admin)</option>}
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Phòng ban</label>
+                  <select
+                    className="input-field"
+                    value={editingUser.departmentId}
+                    onChange={e => setEditingUser({ ...editingUser, departmentId: e.target.value })}
+                    disabled={user.role !== 'admin'}
+                  >
+                    {user.role === 'admin' ? (
+                      departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)
+                    ) : (
+                      <option value={user.departmentId}>
+                        {departments.find(d => d.id === user.departmentId)?.name}
+                      </option>
+                    )}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowEditUserModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Lưu thay đổi</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Projects Detail Modal */}
+      {showProjectsDetailModal && (
+        <div className="modal-overlay" onClick={() => setShowProjectsDetailModal(false)}>
+          <div className="modal-body animate-fade-in" style={{ maxWidth: '800px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3>Chi tiết Danh sách Dự án</h3>
+              <button className="btn btn-secondary" onClick={() => setShowProjectsDetailModal(false)}>Đóng</button>
+            </div>
+            <div className="table-container" style={{ maxHeight: '400px' }}>
+              <table className="table-responsive table-projects">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}>
+                    <th style={{ padding: '10px' }}>Mã dự án</th>
+                    <th style={{ padding: '10px' }}>Tên dự án</th>
+                    <th style={{ padding: '10px' }}>Mô tả</th>
+                    <th style={{ padding: '10px' }}>Trạng thái</th>
+                    {(user.role === 'admin' || user.role === 'leader') && <th style={{ padding: '10px' }}>Thao tác</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {projects.map(p => (
+                    <tr key={p.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                      <td style={{ padding: '12px 10px', fontWeight: 700, color: 'var(--accent-primary)' }}>{p.code}</td>
+                      <td style={{ padding: '12px 10px', fontWeight: 600 }}>{p.name}</td>
+                      <td style={{ padding: '12px 10px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{p.description}</td>
+                      <td style={{ padding: '12px 10px' }}>
+                        <span className={`badge badge-${p.status === 'Active' ? 'done' : 'low'}`}>
+                          {p.status}
+                        </span>
+                      </td>
+                      {(user.role === 'admin' || user.role === 'leader') && (
+                        <td style={{ padding: '12px 10px', display: 'flex', gap: '8px' }}>
+                          <button
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 10px', fontSize: '0.8rem' }}
+                            onClick={() => {
+                              setEditingProject(p);
+                              setShowEditProjectModal(true);
+                            }}
+                          >
+                            Sửa
+                          </button>
+                          <button
+                            className="btn btn-danger"
+                            style={{ padding: '4px 10px', fontSize: '0.8rem', background: '#ef4444' }}
+                            onClick={() => handleDeleteProject(p.id)}
+                          >
+                            Xóa
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Active Tasks Detail Modal */}
+      {showTasksDetailModal && (
+        <div className="modal-overlay" onClick={() => setShowTasksDetailModal(false)}>
+          <div className="modal-body animate-fade-in" style={{ maxWidth: '950px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3>Chi tiết các Task Đang hoạt động ({activeTasks.length})</h3>
+              <button className="btn btn-secondary" onClick={() => setShowTasksDetailModal(false)}>Đóng</button>
+            </div>
+            <div className="table-container" style={{ maxHeight: '450px' }}>
+              <table className="table-responsive table-tasks">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}>
+                    <th style={{ padding: '10px' }}>Dự án</th>
+                    <th style={{ padding: '10px' }}>Tên Task</th>
+                    <th style={{ padding: '10px' }}>Độ ưu tiên</th>
+                    <th style={{ padding: '10px' }}>Người làm</th>
+                    <th style={{ padding: '10px' }}>Bộ phận</th>
+                    <th style={{ padding: '10px' }}>Trạng thái</th>
+                    <th style={{ padding: '10px' }}>Tiến độ</th>
+                    <th style={{ padding: '10px' }}>Hạn chót</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeTasks.map(t => {
+                    const proj = projects.find(p => p.id === t.projectId);
+                    const assignee = usersList.find(u => u.id === t.assigneeId);
+                    const dept = departments.find(d => d.id === t.departmentId);
+                    return (
+                      <tr
+                        key={t.id}
+                        style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer' }}
+                        onClick={() => {
+                          setEditingTask(t);
+                          setShowTasksDetailModal(false);
+                        }}
+                        title="Click để sửa chi tiết"
+                      >
+                        <td style={{ padding: '12px 10px', fontWeight: 600, color: 'var(--accent-primary)' }}>{proj ? proj.code : 'N/A'}</td>
+                        <td style={{ padding: '12px 10px', fontWeight: 600 }}>{t.title}</td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <span className={`badge badge-${t.priority.toLowerCase()}`}>
+                            {t.priority}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 10px' }}>{assignee ? assignee.fullName : 'Chưa gán'}</td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <span className="dept-tag" style={{ fontSize: '0.7rem' }}>{dept ? dept.name : 'Chưa phân'}</span>
+                        </td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <span className={`badge badge-${t.status === 'In Progress' ? 'active' : t.status === 'Review' ? 'medium' : 'low'}`}>
+                            {t.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '80px' }}>
+                            <div className="progress-bar-bg" style={{ width: '50px', height: '6px' }}>
+                              <div className="progress-bar-fill" style={{ width: `${t.progress || 0}%` }} />
+                            </div>
+                            <span>{t.progress || 0}%</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 10px', color: new Date(t.dueDate) < new Date() ? 'var(--status-overdue)' : 'var(--text-secondary)' }}>{t.dueDate}</td>
+                      </tr>
+                    );
+                  })}
+                  {activeTasks.length === 0 && (
+                    <tr>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Không có task nào đang hoạt động.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Finished Tasks Detail Modal */}
+      {showFinishedTasksDetailModal && (
+        <div className="modal-overlay" onClick={() => setShowFinishedTasksDetailModal(false)}>
+          <div className="modal-body animate-fade-in" style={{ maxWidth: '950px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3>Chi tiết các Task Đã hoàn thành ({finishedTasks.length})</h3>
+              <button className="btn btn-secondary" onClick={() => setShowFinishedTasksDetailModal(false)}>Đóng</button>
+            </div>
+            <div className="table-container" style={{ maxHeight: '450px' }}>
+              <table className="table-responsive table-tasks">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}>
+                    <th style={{ padding: '10px' }}>Dự án</th>
+                    <th style={{ padding: '10px' }}>Tên Task</th>
+                    <th style={{ padding: '10px' }}>Độ ưu tiên</th>
+                    <th style={{ padding: '10px' }}>Người làm</th>
+                    <th style={{ padding: '10px' }}>Bộ phận</th>
+                    <th style={{ padding: '10px' }}>Trạng thái</th>
+                    <th style={{ padding: '10px' }}>Tiến độ</th>
+                    <th style={{ padding: '10px' }}>Hạn chót</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {finishedTasks.map(t => {
+                    const proj = projects.find(p => p.id === t.projectId);
+                    const assignee = usersList.find(u => u.id === t.assigneeId);
+                    const dept = departments.find(d => d.id === t.departmentId);
+                    return (
+                      <tr
+                        key={t.id}
+                        style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer' }}
+                        onClick={() => {
+                          setEditingTask(t);
+                          setShowFinishedTasksDetailModal(false);
+                        }}
+                        title="Click để sửa chi tiết"
+                      >
+                        <td style={{ padding: '12px 10px', fontWeight: 600, color: 'var(--accent-primary)' }}>{proj ? proj.code : 'N/A'}</td>
+                        <td style={{ padding: '12px 10px', fontWeight: 600 }}>{t.title}</td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <span className={`badge badge-${t.priority.toLowerCase()}`}>
+                            {t.priority}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 10px' }}>{assignee ? assignee.fullName : 'Chưa gán'}</td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <span className="dept-tag" style={{ fontSize: '0.7rem' }}>{dept ? dept.name : 'Chưa phân'}</span>
+                        </td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <span className="badge badge-done">
+                            {t.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '80px' }}>
+                            <div className="progress-bar-bg" style={{ width: '50px', height: '6px' }}>
+                              <div className="progress-bar-fill" style={{ width: `${t.progress || 0}%` }} />
+                            </div>
+                            <span>{t.progress || 0}%</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 10px', color: 'var(--text-secondary)' }}>{t.dueDate}</td>
+                      </tr>
+                    );
+                  })}
+                  {finishedTasks.length === 0 && (
+                    <tr>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Không có task nào hoàn thành.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Today Tasks Detail Modal */}
+      {showTodayTasksDetailModal && (
+        <div className="modal-overlay" onClick={() => setShowTodayTasksDetailModal(false)}>
+          <div className="modal-body animate-fade-in" style={{ maxWidth: '950px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3>Mục tiêu Hôm nay - Các Task đến hạn ({todayTasks.length})</h3>
+              <button className="btn btn-secondary" onClick={() => setShowTodayTasksDetailModal(false)}>Đóng</button>
+            </div>
+            <div className="table-container" style={{ maxHeight: '450px' }}>
+              <table className="table-responsive table-tasks">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}>
+                    <th style={{ padding: '10px' }}>Dự án</th>
+                    <th style={{ padding: '10px' }}>Tên Task</th>
+                    <th style={{ padding: '10px' }}>Độ ưu tiên</th>
+                    <th style={{ padding: '10px' }}>Người làm</th>
+                    <th style={{ padding: '10px' }}>Bộ phận</th>
+                    <th style={{ padding: '10px' }}>Trạng thái</th>
+                    <th style={{ padding: '10px' }}>Tiến độ</th>
+                    <th style={{ padding: '10px' }}>Hạn chót</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {todayTasks.map(t => {
+                    const proj = projects.find(p => p.id === t.projectId);
+                    const assignee = usersList.find(u => u.id === t.assigneeId);
+                    const dept = departments.find(d => d.id === t.departmentId);
+                    return (
+                      <tr
+                        key={t.id}
+                        style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer' }}
+                        onClick={() => {
+                          setEditingTask(t);
+                          setShowTodayTasksDetailModal(false);
+                        }}
+                        title="Click để sửa chi tiết"
+                      >
+                        <td style={{ padding: '12px 10px', fontWeight: 600, color: 'var(--accent-primary)' }}>{proj ? proj.code : 'N/A'}</td>
+                        <td style={{ padding: '12px 10px', fontWeight: 600 }}>{t.title}</td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <span className={`badge badge-${t.priority.toLowerCase()}`}>
+                            {t.priority}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 10px' }}>{assignee ? assignee.fullName : 'Chưa gán'}</td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <span className="dept-tag" style={{ fontSize: '0.7rem' }}>{dept ? dept.name : 'Chưa phân'}</span>
+                        </td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <span className={`badge badge-${t.status === 'Done' ? 'done' : t.status === 'In Progress' ? 'active' : 'low'}`}>
+                            {t.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: '80px' }}>
+                            <div className="progress-bar-bg" style={{ width: '50px', height: '6px' }}>
+                              <div className="progress-bar-fill" style={{ width: `${t.progress || 0}%` }} />
+                            </div>
+                            <span>{t.progress || 0}%</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: '12px 10px', fontWeight: 'bold', color: 'var(--accent-secondary)' }}>{t.dueDate} (Hôm nay)</td>
+                      </tr>
+                    );
+                  })}
+                  {todayTasks.length === 0 && (
+                    <tr>
+                      <td colSpan="8" style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>Không có mục tiêu nào đến hạn hôm nay.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Project Modal */}
+      {showEditProjectModal && editingProject && (
+        <div className="modal-overlay" onClick={() => {
+          setShowEditProjectModal(false);
+          setEditingProject(null);
+        }}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Chỉnh sửa thông tin Dự án</h3>
+            <form onSubmit={handleUpdateProject} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="input-label">Mã dự án (Không thể sửa)</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={editingProject.code}
+                  disabled
+                  style={{ opacity: 0.6 }}
+                />
+              </div>
+              <div>
+                <label className="input-label">Tên dự án</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={editingProject.name}
+                  onChange={e => setEditingProject({ ...editingProject, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Mô tả dự án</label>
+                <textarea
+                  className="input-field"
+                  rows="3"
+                  value={editingProject.description || ''}
+                  onChange={e => setEditingProject({ ...editingProject, description: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="input-label">Trạng thái</label>
+                <select
+                  className="input-field"
+                  value={editingProject.status}
+                  onChange={e => setEditingProject({ ...editingProject, status: e.target.value })}
+                >
+                  <option value="Active">Đang chạy (Active)</option>
+                  <option value="Completed">Hoàn thành (Completed)</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => {
+                  setShowEditProjectModal(false);
+                  setEditingProject(null);
+                }}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Lưu thay đổi</button>
               </div>
             </form>
           </div>

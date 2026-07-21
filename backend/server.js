@@ -2,7 +2,28 @@ import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { initDb, getAll, getById, insert, update, remove } from './db.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load .env configuration
+const envPath = path.join(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf-8');
+  envContent.split('\n').forEach(line => {
+    const parts = line.split('=');
+    if (parts.length > 1) {
+      const key = parts[0].trim();
+      const val = parts.slice(1).join('=').trim();
+      process.env[key] = val;
+    }
+  });
+}
+
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -124,17 +145,28 @@ app.get('/api/departments', authenticateToken, (req, res) => {
 
 // --- USERS MANAGEMENT APIS ---
 app.get('/api/users', authenticateToken, (req, res) => {
-  const users = getAll('users').map(u => {
-    const { passwordHash, ...safeUser } = u;
-    return safeUser;
-  });
+  const users = getAll('users')
+    .filter(u => req.user.role === 'admin' || u.departmentId === req.user.departmentId)
+    .map(u => {
+      const { passwordHash, ...safeUser } = u;
+      return safeUser;
+    });
   res.json(users);
 });
 
-app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
+app.post('/api/users', authenticateToken, requireLeaderOrAdmin, async (req, res) => {
   const { username, password, fullName, role, departmentId } = req.body;
   if (!username || !password || !fullName || !role || !departmentId) {
     return res.status(400).json({ message: 'Thiếu thông tin người dùng bắt buộc.' });
+  }
+
+  if (req.user.role === 'leader') {
+    if (Number(departmentId) !== req.user.departmentId) {
+      return res.status(403).json({ message: 'Trưởng nhóm chỉ được tạo tài khoản trong bộ phận của mình.' });
+    }
+    if (role === 'admin') {
+      return res.status(403).json({ message: 'Trưởng nhóm không có quyền tạo tài khoản Admin.' });
+    }
   }
 
   const users = getAll('users');
@@ -159,6 +191,7 @@ app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
 });
 
 app.get('/api/users/pending', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  // If leader, they can see pending users since they don't have department assigned yet, but can only approve to their own department
   const users = getAll('users').filter(u => u.isApproved === false);
   const safeUsers = users.map(u => {
     const { passwordHash, ...safeUser } = u;
@@ -167,10 +200,19 @@ app.get('/api/users/pending', authenticateToken, requireLeaderOrAdmin, (req, res
   res.json(safeUsers);
 });
 
-app.put('/api/users/:id/approve', authenticateToken, requireAdmin, (req, res) => {
+app.put('/api/users/:id/approve', authenticateToken, requireLeaderOrAdmin, (req, res) => {
   const { role, departmentId } = req.body;
   if (!role || !departmentId) {
     return res.status(400).json({ message: 'Thiếu thông tin phân quyền và phòng ban duyệt.' });
+  }
+
+  if (req.user.role === 'leader') {
+    if (Number(departmentId) !== req.user.departmentId) {
+      return res.status(403).json({ message: 'Trưởng nhóm chỉ được phê duyệt tài khoản vào bộ phận của mình.' });
+    }
+    if (role === 'admin') {
+      return res.status(403).json({ message: 'Trưởng nhóm không có quyền phê duyệt tài khoản Admin.' });
+    }
   }
 
   const updated = update('users', req.params.id, {
@@ -182,6 +224,87 @@ app.put('/api/users/:id/approve', authenticateToken, requireAdmin, (req, res) =>
   if (!updated) return res.status(404).json({ message: 'Không tìm thấy tài khoản.' });
   const { passwordHash, ...safeUser } = updated;
   res.json(safeUser);
+});
+
+app.put('/api/users/:id', authenticateToken, async (req, res) => {
+  const targetUser = getById('users', req.params.id);
+  if (!targetUser) return res.status(404).json({ message: 'Không tìm thấy người dùng.' });
+
+  const isSelf = targetUser.id === req.user.id;
+  const isAdmin = req.user.role === 'admin';
+  const isLeaderOfSameDept = req.user.role === 'leader' && targetUser.role === 'employee' && targetUser.departmentId === req.user.departmentId;
+
+  if (!isSelf && !isAdmin && !isLeaderOfSameDept) {
+    return res.status(403).json({ message: 'Bạn không có quyền chỉnh sửa tài khoản này.' });
+  }
+
+  const { fullName, username, role, departmentId, password } = req.body;
+
+  const updates = {};
+  if (fullName !== undefined) updates.fullName = fullName;
+  if (username !== undefined) updates.username = username;
+
+  if (role !== undefined) {
+    if (isAdmin) {
+      updates.role = role;
+    } else if (isLeaderOfSameDept) {
+      if (role === 'admin') {
+        return res.status(403).json({ message: 'Trưởng nhóm không có quyền nâng cấp tài khoản lên Admin.' });
+      }
+      updates.role = role;
+    } else {
+      if (role !== targetUser.role) {
+        return res.status(403).json({ message: 'Bạn không có quyền tự thay đổi vai trò của mình.' });
+      }
+    }
+  }
+
+  if (departmentId !== undefined) {
+    if (isAdmin) {
+      updates.departmentId = Number(departmentId);
+    } else {
+      if (Number(departmentId) !== targetUser.departmentId) {
+        return res.status(403).json({ message: 'Bạn không có quyền thay đổi phòng ban.' });
+      }
+    }
+  }
+
+  if (password) {
+    const salt = await bcrypt.genSalt(10);
+    updates.passwordHash = await bcrypt.hash(password, salt);
+  }
+
+  const updated = update('users', req.params.id, updates);
+  const { passwordHash: _, ...safeUser } = updated;
+  res.json(safeUser);
+});
+
+app.delete('/api/users/:id', authenticateToken, (req, res) => {
+  const targetUser = getById('users', req.params.id);
+  if (!targetUser) return res.status(404).json({ message: 'Không tìm thấy người dùng.' });
+
+  const isAdmin = req.user.role === 'admin';
+  const isLeaderOfSameDept = req.user.role === 'leader' && targetUser.role === 'employee' && targetUser.departmentId === req.user.departmentId;
+
+  if (!isAdmin && !isLeaderOfSameDept) {
+    return res.status(403).json({ message: 'Bạn không có quyền xóa tài khoản này.' });
+  }
+
+  if (targetUser.id === req.user.id) {
+    return res.status(400).json({ message: 'Bạn không thể tự xóa tài khoản của chính mình.' });
+  }
+
+  const deleted = remove('users', req.params.id);
+  if (!deleted) return res.status(404).json({ message: 'Lỗi khi xóa người dùng.' });
+  res.json({ message: 'Xóa tài khoản thành công.' });
+});
+
+app.post('/api/users/unlink-telegram', authenticateToken, (req, res) => {
+  const updated = update('users', req.user.id, { telegramChatId: null });
+  if (!updated) return res.status(500).json({ message: 'Không thể hủy liên kết Telegram.' });
+
+  const { passwordHash, ...safeUser } = updated;
+  res.json({ message: 'Đã hủy liên kết Telegram thành công.', user: safeUser });
 });
 
 // --- PROJECTS APIS ---
@@ -211,7 +334,29 @@ app.put('/api/projects/:id', authenticateToken, requireLeaderOrAdmin, (req, res)
   res.json(updated);
 });
 
+app.delete('/api/projects/:id', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const project = getById('projects', req.params.id);
+  if (!project) return res.status(404).json({ message: 'Không tìm thấy dự án.' });
+
+  if (project.creatorId !== req.user.id && req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Bạn không có quyền xóa dự án này.' });
+  }
+
+  const deleted = remove('projects', req.params.id);
+  if (!deleted) return res.status(500).json({ message: 'Lỗi khi xóa dự án.' });
+  res.json({ message: 'Xóa dự án thành công.' });
+});
+
 // --- TASKS APIS ---
+function escapeHtml(text) {
+  if (!text) return '';
+  return text
+    .toString()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 async function sendTelegramAlert(message) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -221,18 +366,146 @@ async function sendTelegramAlert(message) {
   }
   try {
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' })
     });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`Telegram API global error: Status ${res.status} - ${errText}`);
+    }
   } catch (err) {
     console.error(`Lỗi kết nối Telegram API:`, err);
   }
 }
 
+async function sendPersonalTelegramAlert(userId, message) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+
+  const userObj = getById('users', userId);
+  if (!userObj || !userObj.telegramChatId) {
+    // Fallback to global chat
+    console.log(`[Telegram Personal (Not Linked for user ID ${userId})]: ${message}`);
+    await sendTelegramAlert(message);
+    return;
+  }
+
+  try {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: userObj.telegramChatId, text: message, parse_mode: 'HTML' })
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`Telegram API personal error for user ${userId}: Status ${res.status} - ${errText}`);
+    }
+  } catch (err) {
+    console.error(`Lỗi gửi Telegram cho user ${userId}:`, err);
+  }
+}
+
+async function notifyTaskEvent(taskObj, titlePrefix, detailsText, actorId) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+
+  const proj = getById('projects', taskObj.projectId);
+  
+  const escapedTitlePrefix = escapeHtml(titlePrefix);
+  const escapedProjName = escapeHtml(proj ? proj.name : 'N/A');
+  const escapedTaskTitle = escapeHtml(taskObj.title);
+  
+  const message = `<b>${escapedTitlePrefix}</b>\nDự án: <b>${escapedProjName}</b>\nTask: <b>${escapedTaskTitle}</b>\n${detailsText}`;
+
+  const userIdsToNotify = new Set();
+  
+  // 1. Assignee (if not the actor)
+  if (taskObj.assigneeId && taskObj.assigneeId !== actorId) {
+    userIdsToNotify.add(taskObj.assigneeId);
+  }
+  // 2. Creator (if not the actor)
+  if (taskObj.createdBy && taskObj.createdBy !== actorId) {
+    userIdsToNotify.add(taskObj.createdBy);
+  }
+  
+  // 3. Managers/Admins
+  const users = getAll('users');
+  users.forEach(u => {
+    if (u.id !== actorId) {
+      if (u.role === 'admin' || (u.role === 'leader' && u.departmentId === taskObj.departmentId)) {
+        userIdsToNotify.add(u.id);
+      }
+    }
+  });
+
+  // 4. Also notify the actor themselves for confirmation if they are admin/leader
+  const actor = getById('users', actorId);
+  if (actor && (actor.role === 'admin' || actor.role === 'leader')) {
+    userIdsToNotify.add(actorId);
+  }
+
+  for (const uid of userIdsToNotify) {
+    await sendPersonalTelegramAlert(uid, message);
+  }
+
+  await sendTelegramAlert(message);
+}
+
+async function notifyGoalEvent(goalObj, titlePrefix, detailsText, actorId) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+
+  const users = getAll('users');
+  const owner = users.find(u => u.id === goalObj.userId);
+  if (!owner) return;
+
+  const escapedTitlePrefix = escapeHtml(titlePrefix);
+  const escapedOwnerName = escapeHtml(owner.fullName);
+  const escapedContent = escapeHtml(goalObj.content);
+  
+  let typeVietnamese = 'Ngày';
+  if (goalObj.type === 'week') typeVietnamese = 'Tuần';
+  else if (goalObj.type === 'month') typeVietnamese = 'Tháng';
+
+  const message = `<b>${escapedTitlePrefix}</b>\nLoại mục tiêu: <b>Mục tiêu ${typeVietnamese}</b>\nNhân sự: <b>${escapedOwnerName}</b>\nNội dung: <b>${escapedContent}</b>\n${detailsText}`;
+
+  const userIdsToNotify = new Set();
+
+  if (goalObj.userId && goalObj.userId !== actorId) {
+    userIdsToNotify.add(goalObj.userId);
+  }
+
+  users.forEach(u => {
+    if (u.id !== actorId) {
+      if (u.role === 'leader' && u.departmentId === owner.departmentId) {
+        userIdsToNotify.add(u.id);
+      }
+      if (u.role === 'admin') {
+        userIdsToNotify.add(u.id);
+      }
+    }
+  });
+
+  const actor = users.find(u => u.id === actorId);
+  if (actor && (actor.role === 'admin' || actor.role === 'leader')) {
+    userIdsToNotify.add(actorId);
+  }
+
+  for (const uid of userIdsToNotify) {
+    await sendPersonalTelegramAlert(uid, message);
+  }
+
+  await sendTelegramAlert(message);
+}
+
 app.get('/api/tasks', authenticateToken, (req, res) => {
   const tasks = getAll('tasks');
+  if (req.user.role === 'leader') {
+    return res.json(tasks.filter(t => t.departmentId === req.user.departmentId));
+  }
   res.json(tasks);
 });
 
@@ -259,8 +532,7 @@ app.post('/api/tasks', authenticateToken, requireLeaderOrAdmin, (req, res) => {
   });
 
   const assignee = getById('users', Number(assigneeId));
-  const proj = getById('projects', Number(projectId));
-  sendTelegramAlert(`<b>[Nhiệm vụ mới]</b> Giao việc cho <b>${assignee ? assignee.fullName : 'nhân viên'}</b>\nDự án: ${proj ? proj.name : 'N/A'}\nTask: ${title}\nHạn chót: ${dueDate || 'N/A'}`);
+  notifyTaskEvent(newTask, "[Nhiệm vụ mới] Giao việc", `Người giao: <b>${req.user.fullName}</b>\nThực hiện: <b>${assignee ? assignee.fullName : 'Chưa rõ'}</b>\nHạn chót: <b>${dueDate || 'N/A'}</b>`, req.user.id);
 
   res.status(201).json(newTask);
 });
@@ -311,11 +583,15 @@ app.put('/api/tasks/:id', authenticateToken, (req, res) => {
   }
 
   const updated = update('tasks', req.params.id, updates);
+  const proj = getById('projects', updated.projectId);
+  const assignee = getById('users', updated.assigneeId);
+
   if (updates.status === 'Done' && task.status !== 'Done') {
-    const proj = getById('projects', updated.projectId);
-    const assignee = getById('users', updated.assigneeId);
-    sendTelegramAlert(`<b>[Nhiệm vụ hoàn thành]</b>\nDự án: ${proj ? proj.name : 'N/A'}\nTask: <b>${updated.title}</b> đã hoàn thành bởi <b>${assignee ? assignee.fullName : 'nhân viên'}</b>!`);
+    notifyTaskEvent(updated, "[Nhiệm vụ hoàn thành] ✔️", `Hoàn thành bởi: <b>${req.user.fullName}</b>\nNgười thực hiện: <b>${assignee ? assignee.fullName : 'Chưa rõ'}</b>`, req.user.id);
+  } else {
+    notifyTaskEvent(updated, "[Cập nhật Nhiệm vụ] 🔄", `Cập nhật bởi: <b>${req.user.fullName}</b>\nTrạng thái mới: <b>${updated.status}</b>\nTiến độ mới: <b>${updated.progress}%</b>`, req.user.id);
   }
+
   res.json(updated);
 });
 
@@ -435,7 +711,7 @@ app.post('/api/goals', authenticateToken, (req, res) => {
       if (prog === 100) stat = 'Completed';
       else if (item.targetDate < todayStr) stat = 'Overdue';
 
-      return insert('goals', {
+      const g = insert('goals', {
         userId: req.user.id,
         type: item.type,
         content: item.content,
@@ -444,6 +720,9 @@ app.post('/api/goals', authenticateToken, (req, res) => {
         targetDate: item.targetDate,
         createdAt: todayStr
       });
+
+      notifyGoalEvent(g, "[Mục tiêu mới] 🎯", `Người tạo: <b>${req.user.fullName}</b>\nHạn chót: <b>${g.targetDate}</b>`, req.user.id);
+      return g;
     }).filter(Boolean);
     return res.status(201).json(inserted);
   }
@@ -467,6 +746,8 @@ app.post('/api/goals', authenticateToken, (req, res) => {
     targetDate,
     createdAt: todayStr
   });
+
+  notifyGoalEvent(newGoal, "[Mục tiêu mới] 🎯", `Người tạo: <b>${req.user.fullName}</b>\nHạn chót: <b>${newGoal.targetDate}</b>`, req.user.id);
   res.status(201).json(newGoal);
 });
 
@@ -509,6 +790,7 @@ app.put('/api/goals/:id', authenticateToken, (req, res) => {
   }
 
   const updated = update('goals', req.params.id, updates);
+  notifyGoalEvent(updated, "[Cập nhật Mục tiêu] 🔄", `Cập nhật bởi: <b>${req.user.fullName}</b>\nTiến độ: <b>${updated.progress}%</b>\nTrạng thái: <b>${updated.status}</b>`, req.user.id);
   res.json(updated);
 });
 
@@ -1022,37 +1304,6 @@ app.get('/api/reports/export-doc', authenticateToken, requireLeaderOrAdmin, (req
   res.setHeader('Content-Type', 'application/msword');
   res.setHeader('Content-Disposition', `attachment; filename="Bao_Cao_Tuan_${weekStartDate}.doc"`);
   res.send(html);
-});ame : 'NV'}] ${p}</li>`).join('');
-                }).join('')}
-              </ul>
-            </td>
-          </tr>
-          `;
-        }).join('')}
-      </tbody>
-    </table>
-
-    <div class="signature-row">
-      <div class="signature-col">
-        <strong>NGƯỜI LẬP BÁO CÁO</strong><br/>
-        <span style="font-size:9pt; color:#6b7280; font-style:italic;">(Ký, ghi rõ họ tên)</span>
-        <br/><br/><br/><br/>
-        <strong>Hệ thống quản lý PM</strong>
-      </div>
-      <div class="signature-col">
-        <strong>BAN GIÁM ĐỐC / ADMIN DUYỆT</strong><br/>
-        <span style="font-size:9pt; color:#6b7280; font-style:italic;">(Ký, ghi rõ họ tên)</span>
-        <br/><br/><br/><br/>
-        <strong>Quản trị viên hệ thống</strong>
-      </div>
-    </div>
-  </body>
-  </html>
-  `;
-
-  res.setHeader('Content-Type', 'application/msword');
-  res.setHeader('Content-Disposition', `attachment; filename="Bao_Cao_Tuan_${weekStartDate}.doc"`);
-  res.send(html);
 });
 
 // --- MODULE VẬN HÀNH LAB & LINH KIỆN APIS ---
@@ -1434,3 +1685,66 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`- Mạng nội bộ: http://0.0.0.0:${PORT}`);
   console.log(`==================================================`);
 });
+
+let lastUpdateId = 0;
+async function pollTelegramUpdates() {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+
+  try {
+    const url = `https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId + 1}&timeout=5`;
+    const res = await fetch(url);
+    if (!res.ok) return;
+
+    const data = await res.json();
+    if (data.ok && data.result.length > 0) {
+      for (const updateObj of data.result) {
+        lastUpdateId = updateObj.update_id;
+        const message = updateObj.message;
+        if (!message || !message.text) continue;
+
+        const text = message.text.trim();
+        const chatId = message.chat.id;
+        const telegramUser = message.from?.username || message.from?.first_name || 'User';
+
+        if (text.startsWith('/start')) {
+          const parts = text.split(' ');
+          if (parts.length > 1) {
+            const userId = Number(parts[1]);
+            if (userId) {
+              const u = getById('users', userId);
+              if (u) {
+                // Link telegram chat ID to user
+                update('users', userId, { telegramChatId: chatId });
+                
+                const responseText = `<b>[PM System]</b>\nXin chào <b>${u.fullName}</b> (@${u.username})!\nTài khoản của bạn đã được liên kết với Telegram của <b>${telegramUser}</b> thành công.\n\nTừ giờ, bạn sẽ nhận được thông báo trực tiếp khi được giao việc hoặc có cập nhật công việc quan trọng.`;
+                
+                await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ chat_id: chatId, text: responseText, parse_mode: 'HTML' })
+                });
+                
+                console.log(`[Telegram Link] Linked user ID ${userId} to chat ID ${chatId}`);
+              }
+            }
+          } else {
+            const responseText = `Chào mừng bạn đến với bot thông báo PM System!\nĐể liên kết tài khoản, vui lòng truy cập Dashboard trên website và nhấp vào nút "Liên kết Telegram".`;
+            await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ chat_id: chatId, text: responseText })
+            });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Lỗi khi long-polling Telegram API:", err);
+  }
+}
+
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  console.log("Telegram Bot Token phát hiện. Đang khởi chạy Telegram updates long polling...");
+  setInterval(pollTelegramUpdates, 3000);
+}
