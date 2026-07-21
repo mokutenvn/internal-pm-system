@@ -35,7 +35,7 @@ import {
   X
 } from 'lucide-react';
 
-const API_BASE = `http://${window.location.hostname}:5000/api`;
+const API_BASE = `http://${window.location.hostname}:30001/api`;
 
 // Helper to get current week's Monday (YYYY-MM-DD)
 function getMonday(d) {
