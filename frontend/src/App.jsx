@@ -307,11 +307,14 @@ export default function App() {
       if (wikisRes.ok) setWikiPagesList(await wikisRes.json());
       if (statsRes.ok) setDashboardStats(await statsRes.json());
 
-      // If Admin or Leader, fetch users and weekly summary
-      if (user && (user.role === 'admin' || user.role === 'leader')) {
+      // Fetch users for all logged in users (needed for display names, assignees, and task assignments)
+      if (user) {
         const usersRes = await fetch(`${API_BASE}/users`, { headers });
         if (usersRes.ok) setUsersList(await usersRes.json());
-        
+      }
+
+      // If Admin or Leader, fetch pending users and weekly summary
+      if (user && (user.role === 'admin' || user.role === 'leader')) {
         const pendingRes = await fetch(`${API_BASE}/users/pending`, { headers });
         if (pendingRes.ok) setPendingUsers(await pendingRes.json());
         
