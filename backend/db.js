@@ -11,7 +11,7 @@ const defaultDb = {
   departments: [
     { id: 1, name: 'Hardware' },
     { id: 2, name: 'Firmware' },
-    { id: 3, name: 'Software' },
+    { id: 3, name: 'Sản xuất' },
     { id: 4, name: 'Industrial Design' }
   ],
   users: [],

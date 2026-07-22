@@ -106,7 +106,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const { username, password, fullName } = req.body;
+  const { username, password, fullName, departmentId } = req.body;
   if (!username || !password || !fullName) {
     return res.status(400).json({ message: 'Vui lòng điền đầy đủ thông tin đăng ký.' });
   }
@@ -124,7 +124,7 @@ app.post('/api/auth/register', async (req, res) => {
     passwordHash,
     fullName,
     role: 'employee',
-    departmentId: null,
+    departmentId: departmentId ? Number(departmentId) : 1,
     isApproved: false
   });
 

@@ -145,6 +145,7 @@ export default function App() {
   const [registerFullName, setRegisterFullName] = useState('');
   const [registerUsername, setRegisterUsername] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
+  const [registerDepartmentId, setRegisterDepartmentId] = useState('1');
   const [successMsg, setSuccessMsg] = useState('');
 
   // Danh sách tài khoản đăng ký chờ phê duyệt
@@ -410,7 +411,8 @@ export default function App() {
         body: JSON.stringify({
           username: registerUsername,
           password: registerPassword,
-          fullName: registerFullName
+          fullName: registerFullName,
+          departmentId: registerDepartmentId
         })
       });
       const data = await res.json();
@@ -421,6 +423,7 @@ export default function App() {
       setRegisterUsername('');
       setRegisterPassword('');
       setRegisterFullName('');
+      setRegisterDepartmentId('1');
       setIsLoginTab(true);
     } catch (err) {
       setErrorMsg(err.message);
@@ -430,7 +433,9 @@ export default function App() {
   };
 
   const handleApproveUser = async (userId) => {
-    const deptId = user.role === 'leader' ? user.departmentId.toString() : (approvalDepts[userId] || '1');
+    const targetPending = pendingUsers.find(u => u.id === userId);
+    const defaultDept = targetPending && targetPending.departmentId ? targetPending.departmentId.toString() : '1';
+    const deptId = user.role === 'leader' ? user.departmentId.toString() : (approvalDepts[userId] || defaultDept);
     const role = approvalRoles[userId] || 'employee';
     try {
       const res = await fetch(`${API_BASE}/users/${userId}/approve`, {
@@ -1372,6 +1377,19 @@ export default function App() {
                   onChange={e => setRegisterUsername(e.target.value)}
                   required
                 />
+              </div>
+              <div style={{ marginBottom: '16px' }}>
+                <label className="input-label">Nhiệm vụ / Bộ phận chuyên môn</label>
+                <select
+                  className="input-field"
+                  value={registerDepartmentId}
+                  onChange={e => setRegisterDepartmentId(e.target.value)}
+                >
+                  <option value="1">Hardware (Phần cứng)</option>
+                  <option value="2">Firmware (Phần mềm nhúng)</option>
+                  <option value="3">Sản xuất (Manufacturing)</option>
+                  <option value="4">Industrial Design (Thiết kế dáng mẫu)</option>
+                </select>
               </div>
               <div style={{ marginBottom: '24px' }}>
                 <label className="input-label">Mật khẩu</label>
@@ -3487,7 +3505,7 @@ export default function App() {
                               <select
                                 className="input-field"
                                 style={{ padding: '6px 12px', fontSize: '0.85rem', width: 'auto' }}
-                                value={approvalDepts[u.id] || '1'}
+                                value={approvalDepts[u.id] || (u.departmentId ? u.departmentId.toString() : '1')}
                                 onChange={e => setApprovalDepts({ ...approvalDepts, [u.id]: e.target.value })}
                               >
                                 {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
