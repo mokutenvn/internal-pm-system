@@ -335,9 +335,16 @@ app.post('/api/projects', authenticateToken, requireLeaderOrAdmin, (req, res) =>
 });
 
 app.put('/api/projects/:id', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const existing = getById('projects', req.params.id);
+  if (!existing) return res.status(404).json({ message: 'Không tìm thấy dự án.' });
+
   const { name, description, status } = req.body;
-  const updated = update('projects', req.params.id, { name, description, status });
-  if (!updated) return res.status(404).json({ message: 'Không tìm thấy dự án.' });
+  const updates = {};
+  if (name !== undefined) updates.name = name;
+  if (description !== undefined) updates.description = description;
+  if (status !== undefined) updates.status = status;
+
+  const updated = update('projects', req.params.id, updates);
   res.json(updated);
 });
 
@@ -631,9 +638,19 @@ app.post('/api/sprints', authenticateToken, requireLeaderOrAdmin, (req, res) => 
 });
 
 app.put('/api/sprints/:id', authenticateToken, requireLeaderOrAdmin, (req, res) => {
-  const { name, goal, startDate, endDate, status } = req.body;
-  const updated = update('sprints', req.params.id, { name, goal, startDate, endDate, status });
-  if (!updated) return res.status(404).json({ message: 'Không tìm thấy Sprint.' });
+  const existing = getById('sprints', req.params.id);
+  if (!existing) return res.status(404).json({ message: 'Không tìm thấy Sprint.' });
+
+  const { name, goal, startDate, endDate, status, projectId } = req.body;
+  const updates = {};
+  if (name !== undefined) updates.name = name;
+  if (goal !== undefined) updates.goal = goal;
+  if (startDate !== undefined) updates.startDate = startDate;
+  if (endDate !== undefined) updates.endDate = endDate;
+  if (status !== undefined) updates.status = status;
+  if (projectId !== undefined) updates.projectId = Number(projectId);
+
+  const updated = update('sprints', req.params.id, updates);
   res.json(updated);
 });
 

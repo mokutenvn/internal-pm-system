@@ -2727,7 +2727,15 @@ export default function App() {
                       <Layers size={16} />
                       Kế thừa dự án
                     </button>
-                    <button className="btn btn-primary" onClick={() => setShowTaskModal(true)}>
+                    <button className="btn btn-primary" onClick={() => {
+                      setNewTask(prev => ({
+                        ...prev,
+                        projectId: selectedProjectId || prev.projectId,
+                        sprintId: selectedSprintId || '',
+                        departmentId: user.departmentId ? user.departmentId.toString() : '1'
+                      }));
+                      setShowTaskModal(true);
+                    }}>
                       <Plus size={16} />
                       Thêm Task
                     </button>
@@ -3931,9 +3939,11 @@ export default function App() {
                     value={newTask.sprintId}
                     onChange={e => setNewTask(prev => ({ ...prev, sprintId: e.target.value }))}
                   >
-                    <option value="">-- Không thuộc Sprint --</option>
+                    <option value="">-- Không thuộc Sprint (Backlog) --</option>
                     {sprints.filter(s => s.projectId === Number(newTask.projectId || selectedProjectId)).map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
+                      <option key={s.id} value={s.id}>
+                        {s.name || `Sprint #${s.id}`} ({s.status === 'Active' ? '🚀 Đang chạy' : s.status === 'Completed' ? '✔️ Hoàn thành' : '📋 Kế hoạch'})
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -4093,9 +4103,11 @@ export default function App() {
                     disabled={!(user.role === 'admin' || user.role === 'leader')}
                     style={!(user.role === 'admin' || user.role === 'leader') ? { opacity: 0.7, cursor: 'not-allowed' } : {}}
                   >
-                    <option value="">-- Không thuộc Sprint --</option>
+                    <option value="">-- Không thuộc Sprint (Backlog) --</option>
                     {sprints.filter(s => s.projectId === editingTask.projectId).map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
+                      <option key={s.id} value={s.id}>
+                        {s.name || `Sprint #${s.id}`} ({s.status === 'Active' ? '🚀 Đang chạy' : s.status === 'Completed' ? '✔️ Hoàn thành' : '📋 Kế hoạch'})
+                      </option>
                     ))}
                   </select>
                 </div>
