@@ -2787,35 +2787,33 @@ export default function App() {
                 <h2>Bảng công việc Kanban & Sprints</h2>
                 <p style={{ color: 'var(--text-secondary)' }}>Chọn dự án và quản lý quy trình phát triển sản phẩm Agile.</p>
               </div>
-              <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                 {(user.role === 'admin' || user.role === 'leader') && (
-                  <>
-                    <button className="btn btn-secondary" onClick={() => setShowProjectModal(true)}>
-                      <Plus size={16} />
-                      Thêm Dự án
-                    </button>
-                    <button className="btn btn-secondary" onClick={() => setShowSprintModal(true)}>
-                      <Plus size={16} />
-                      Thêm Sprint
-                    </button>
-                    <button className="btn btn-secondary" onClick={() => setShowInheritModal(true)}>
-                      <Layers size={16} />
-                      Kế thừa dự án
-                    </button>
-                    <button className="btn btn-primary" onClick={() => {
-                      setNewTask(prev => ({
-                        ...prev,
-                        projectId: selectedProjectId || prev.projectId,
-                        sprintId: selectedSprintId || '',
-                        departmentId: user.departmentId ? user.departmentId.toString() : '1'
-                      }));
-                      setShowTaskModal(true);
-                    }}>
-                      <Plus size={16} />
-                      Thêm Task
-                    </button>
-                  </>
+                  <button className="btn btn-secondary" onClick={() => setShowProjectModal(true)}>
+                    <Plus size={16} />
+                    Thêm Dự án
+                  </button>
                 )}
+                <button className="btn btn-secondary" onClick={() => setShowSprintModal(true)}>
+                  <Plus size={16} />
+                  Thêm Sprint
+                </button>
+                <button className="btn btn-secondary" onClick={() => setShowInheritModal(true)}>
+                  <Layers size={16} />
+                  Kế thừa dự án
+                </button>
+                <button className="btn btn-primary" onClick={() => {
+                  setNewTask(prev => ({
+                    ...prev,
+                    projectId: selectedProjectId || prev.projectId,
+                    sprintId: selectedSprintId || '',
+                    departmentId: user.departmentId ? user.departmentId.toString() : '1'
+                  }));
+                  setShowTaskModal(true);
+                }}>
+                  <Plus size={16} />
+                  Thêm Task
+                </button>
               </div>
             </div>
 
@@ -2885,16 +2883,14 @@ export default function App() {
                     <Clock size={16} />
                     DANH SÁCH SPRINTS THUỘC DỰ ÁN
                   </div>
-                  {(user.role === 'admin' || user.role === 'leader') && (
-                    <button 
-                      className="btn btn-secondary" 
-                      style={{ padding: '4px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }} 
-                      onClick={() => setShowSprintModal(true)}
-                    >
-                      <Plus size={14} />
-                      Tạo Sprint mới
-                    </button>
-                  )}
+                  <button 
+                    className="btn btn-secondary" 
+                    style={{ padding: '4px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }} 
+                    onClick={() => setShowSprintModal(true)}
+                  >
+                    <Plus size={14} />
+                    Tạo Sprint mới
+                  </button>
                 </div>
 
                 {/* Sprints Cards list */}
@@ -2998,38 +2994,38 @@ export default function App() {
                       </p>
                     </div>
 
-                    {(user.role === 'admin' || user.role === 'leader') && (
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <button
-                          className="btn btn-secondary"
-                          style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                          onClick={() => {
-                            setEditingSprint({ ...activeSprint });
-                            setShowEditSprintModal(true);
-                          }}
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                        onClick={() => {
+                          setEditingSprint({ ...activeSprint });
+                          setShowEditSprintModal(true);
+                        }}
+                      >
+                        Sửa thông tin Sprint
+                      </button>
+                      
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Trạng thái:</span>
+                        <select
+                          className="input-field"
+                          style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto' }}
+                          value={activeSprint.status || 'Planned'}
+                          onChange={e => handleUpdateSprintStatus(activeSprint.id, e.target.value)}
                         >
-                          Sửa thông tin Sprint
-                        </button>
-                        
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Trạng thái:</span>
-                          <select
-                            className="input-field"
-                            style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto' }}
-                            value={activeSprint.status || 'Planned'}
-                            onChange={e => handleUpdateSprintStatus(activeSprint.id, e.target.value)}
-                          >
-                            <option value="Planned">📋 Kế hoạch</option>
-                            <option value="Active">🚀 Đang chạy</option>
-                            <option value="Completed">✔️ Hoàn thành</option>
-                          </select>
-                        </div>
+                          <option value="Planned">📋 Kế hoạch</option>
+                          <option value="Active">🚀 Đang chạy</option>
+                          <option value="Completed">✔️ Hoàn thành</option>
+                        </select>
+                      </div>
 
+                      {(user.role === 'admin' || user.role === 'leader') && (
                         <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#ef4444' }} onClick={() => handleDeleteSprint(activeSprint.id)}>
                           Xóa Sprint
                         </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 );
               })()}

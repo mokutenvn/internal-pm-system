@@ -523,7 +523,7 @@ app.get('/api/tasks', authenticateToken, (req, res) => {
   res.json(tasks);
 });
 
-app.post('/api/tasks', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+app.post('/api/tasks', authenticateToken, (req, res) => {
   const { projectId, title, description, assigneeId, dueDate, priority, sprintId, departmentId, parentTaskId, estimate, status } = req.body;
   if (!projectId || !title || !assigneeId) {
     return res.status(400).json({ message: 'Vui lòng điền đầy đủ các trường bắt buộc (Dự án, Tiêu đề, Người thực hiện).' });
@@ -620,7 +620,7 @@ app.get('/api/sprints', authenticateToken, (req, res) => {
   res.json(getAll('sprints'));
 });
 
-app.post('/api/sprints', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+app.post('/api/sprints', authenticateToken, (req, res) => {
   const { projectId, name, goal, startDate, endDate, status } = req.body;
   if (!projectId || !name) {
     return res.status(400).json({ message: 'Vui lòng cung cấp Dự án và Tên Sprint.' });
@@ -637,7 +637,7 @@ app.post('/api/sprints', authenticateToken, requireLeaderOrAdmin, (req, res) => 
   res.status(201).json(newSprint);
 });
 
-app.put('/api/sprints/:id', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+app.put('/api/sprints/:id', authenticateToken, (req, res) => {
   const existing = getById('sprints', req.params.id);
   if (!existing) return res.status(404).json({ message: 'Không tìm thấy Sprint.' });
 
@@ -1689,27 +1689,26 @@ app.put('/api/wiki-pages/:id', authenticateToken, (req, res) => {
 // --- INHERITANCE & DASHBOARD APIS ---
 
 // Kế thừa dự án (BOM, Links)
-app.post('/api/projects/:id/inherit', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+app.post('/api/projects/:id/inherit', authenticateToken, (req, res) => {
   const childProjectId = Number(req.params.id);
   const { sourceProjectId, inheritBOM, inheritLinks } = req.body;
   if (!sourceProjectId) {
     return res.status(400).json({ message: 'Vui lòng cung cấp Dự án nguồn để kế thừa.' });
   }
 
-  const db = readDb();
-  
   // Kế thừa BOM (procurements)
   if (inheritBOM) {
-    const sourceBOM = (db.procurements || []).filter(p => p.projectId === Number(sourceProjectId));
+    const allProcurements = getAll('procurements');
+    const sourceBOM = allProcurements.filter(p => p.projectId === Number(sourceProjectId));
     sourceBOM.forEach(item => {
       insert('procurements', {
         userId: req.user.id,
         projectId: childProjectId,
-        departmentId: item.departmentId,
-        itemName: item.itemName + ' (Kế thừa từ TH' + sourceProjectId + ')',
-        url: item.url,
-        quantity: item.quantity,
-        estimatedPrice: item.estimatedPrice,
+        departmentId: item.departmentId || 1,
+        itemName: (item.itemName || 'Linh kiện') + ' (Kế thừa từ TH' + sourceProjectId + ')',
+        url: item.url || '',
+        quantity: item.quantity || 1,
+        estimatedPrice: item.estimatedPrice || 0,
         status: 'Pending'
       });
     });
@@ -1717,7 +1716,8 @@ app.post('/api/projects/:id/inherit', authenticateToken, requireLeaderOrAdmin, (
 
   // Kế thừa Project Links
   if (inheritLinks) {
-    const sourceLinks = (db.project_links || []).filter(l => l.projectId === Number(sourceProjectId));
+    const allLinks = getAll('project_links');
+    const sourceLinks = allLinks.filter(l => l.projectId === Number(sourceProjectId));
     sourceLinks.forEach(link => {
       insert('project_links', {
         projectId: childProjectId,
