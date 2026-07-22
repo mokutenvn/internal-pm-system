@@ -26,7 +26,7 @@ if (fs.existsSync(envPath)) {
 
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 30001;
 const JWT_SECRET = 'secretkey_pm_system_123';
 
 app.use(cors());
