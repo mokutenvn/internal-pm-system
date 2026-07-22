@@ -322,10 +322,14 @@ app.get('/api/projects', authenticateToken, (req, res) => {
 });
 
 app.post('/api/projects', authenticateToken, requireLeaderOrAdmin, (req, res) => {
-  const { name, description, status } = req.body;
+  const { name, description, status, code } = req.body;
   if (!name) return res.status(400).json({ message: 'Tên dự án là bắt buộc.' });
 
+  const projects = getAll('projects');
+  const generatedCode = code || `DA0${projects.length + 1}`;
+
   const newProject = insert('projects', {
+    code: generatedCode,
     name,
     description: description || '',
     status: status || 'Active',
@@ -517,10 +521,12 @@ async function notifyGoalEvent(goalObj, titlePrefix, detailsText, actorId) {
 
 app.get('/api/tasks', authenticateToken, (req, res) => {
   const tasks = getAll('tasks');
-  if (req.user.role === 'leader') {
-    return res.json(tasks.filter(t => t.departmentId === req.user.departmentId));
+  if (req.user.role === 'admin') {
+    return res.json(tasks);
   }
-  res.json(tasks);
+  const userDept = req.user.departmentId;
+  if (!userDept) return res.json(tasks);
+  res.json(tasks.filter(t => t.departmentId === userDept || t.assigneeId === req.user.id));
 });
 
 app.post('/api/tasks', authenticateToken, (req, res) => {

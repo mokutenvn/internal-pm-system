@@ -486,12 +486,21 @@ export default function App() {
         body: JSON.stringify(newProject)
       });
       if (res.ok) {
+        const created = await res.json();
         setNewProject({ name: '', description: '', status: 'Active' });
         setShowProjectModal(false);
+        if (created && created.id) {
+          setSelectedProjectId(created.id.toString());
+        }
         fetchCoreData();
+        alert("Tạo dự án thành công!");
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Lỗi khi tạo dự án.');
       }
     } catch (err) {
       console.error(err);
+      alert('Lỗi kết nối khi tạo dự án.');
     }
   };
 
