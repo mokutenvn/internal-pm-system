@@ -107,7 +107,10 @@ export default function App() {
   const [newGoalType, setNewGoalType] = useState('day');
   const [newGoalDate, setNewGoalDate] = useState(new Date().toISOString().split('T')[0]);
   const [goalInputs, setGoalInputs] = useState(['']); // Danh sách mục tiêu thêm cùng lúc
-  const [newReport, setNewReport] = useState({ weekStartDate: getMonday(new Date()), doneContent: '', plannedContent: '', blockers: '' });
+  const [newReport, setNewReport] = useState({ weekStartDate: getMonday(new Date()), recipientId: '', doneContent: '', plannedContent: '', blockers: '' });
+  const [viewingReportModal, setViewingReportModal] = useState(null);
+  const [reportRatingInput, setReportRatingInput] = useState(5);
+  const [reportFeedbackInput, setReportFeedbackInput] = useState('');
   
   // Weekly summary filter for Admins
   const [summaryWeek, setSummaryWeek] = useState(getMonday(new Date()));
@@ -1248,23 +1251,58 @@ export default function App() {
       alert("Lỗi xuất file Word: " + err.message);
     }
   };
+  const getReportRecipientOptions = () => {
+    if (!usersList || usersList.length === 0) return [];
+    if (user.role === 'employee') {
+      return usersList.filter(u => u.role === 'leader' && u.departmentId === user.departmentId);
+    }
+    if (user.role === 'leader') {
+      return usersList.filter(u => u.role === 'admin');
+    }
+    return usersList.filter(u => u.role === 'admin' || u.role === 'leader');
+  };
+
+  const handleSaveReportFeedback = async (e) => {
+    e.preventDefault();
+    if (!viewingReportModal) return;
+    try {
+      const res = await fetch(`${API_BASE}/reports/${viewingReportModal.id}/feedback`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          rating: Number(reportRatingInput),
+          feedback: reportFeedbackInput
+        })
+      });
+      if (res.ok) {
+        setViewingReportModal(null);
+        fetchCoreData();
+        alert("Lưu đánh giá và gửi phản hồi thành công!");
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const autoPopulateReport = () => {
-    // Collect all goals/tasks that are done (100%) or active in this week
     const monday = getMonday(new Date());
-    const weekGoals = goals.filter(g => g.targetDate >= monday);
-    
-    const completedList = weekGoals
-      .map(g => `- [Mục tiêu ${g.type === 'day' ? 'Ngày' : g.type === 'week' ? 'Tuần' : 'Tháng'}] ${g.content} (${g.progress}%)`)
-      .join('\n');
-      
-    const taskList = tasks
-      .filter(t => t.assigneeId === user.id)
-      .map(t => `- [Task] ${t.title} (Tiến độ: ${t.progress || 0}%)`)
-      .join('\n');
+    const userDoneTasks = tasks.filter(t => t.assigneeId === user.id && (t.status === 'Done' || t.progress === 100));
+    const doneText = userDoneTasks.length > 0
+      ? userDoneTasks.map(t => `- [Hoàn thành] ${t.title} (${t.estimate || 0}h)`).join('\n')
+      : '- Hoàn thành các nhiệm vụ nghiên cứu & phát triển chuyên môn.';
+
+    const userUpcomingTasks = tasks.filter(t => t.assigneeId === user.id && t.status !== 'Done');
+    const plannedText = userUpcomingTasks.length > 0
+      ? userUpcomingTasks.map(t => `- [Triển khai] ${t.title} (Hạn: ${t.dueDate || 'Chưa đặt'})`).join('\n')
+      : '';
 
     setNewReport(prev => ({
       ...prev,
-      doneContent: `--- BÁO CÁO CÔNG VIỆC ---\n${taskList || 'Không có task gán trực tiếp.'}\n\n--- CÁC MỤC TIÊU ---\n${completedList || 'Chưa đăng ký mục tiêu tuần này.'}`
+      doneContent: doneText,
+      plannedContent: plannedText
     }));
   };
 
@@ -1351,7 +1389,7 @@ export default function App() {
         `}</style>
         <div className="login-container">
           <div className="login-header">
-            <div className="login-logo">NEXUS R&D PM</div>
+            <div className="login-logo">R&D Portal</div>
             <div className="login-sub">Hệ Thống Quản Lý Dự Án & Báo Cáo Nội Bộ</div>
           </div>
 
@@ -1882,7 +1920,7 @@ export default function App() {
       <div className="mobile-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }} />
-          <h3 style={{ fontSize: '1.05rem', margin: 0, letterSpacing: '0px' }}>NEXUS R&D PM</h3>
+          <h3 style={{ fontSize: '1.05rem', margin: 0, letterSpacing: '0px' }}>R&D Portal</h3>
         </div>
         <button className="mobile-menu-btn" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
           <Menu size={24} />
@@ -1901,7 +1939,7 @@ export default function App() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' }} />
-              <h3 style={{ fontSize: '1.2rem', letterSpacing: '0px', margin: 0 }}>NEXUS R&D PM</h3>
+              <h3 style={{ fontSize: '1.2rem', letterSpacing: '0px', margin: 0 }}>R&D Portal</h3>
             </div>
             <button 
               className="mobile-close-btn"
@@ -3141,34 +3179,61 @@ export default function App() {
         {/* 3. REPORTS TAB */}
         {activeTab === 'reports' && (
           <div className="animate-fade-in">
-            <h2>Hệ thống Báo cáo tuần</h2>
-            <p style={{ color: 'var(--text-secondary)' }}>Nộp báo cáo cá nhân hàng tuần và xem tổng hợp báo cáo dành cho Quản trị viên.</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h2>Hệ thống Báo cáo tuần & Quản lý Tiến độ</h2>
+                <p style={{ color: 'var(--text-secondary)' }}>Nộp báo cáo cá nhân, phân quyền người nhận và theo dõi tiến độ nhân sự R&D.</p>
+              </div>
+            </div>
 
-            <div className="dashboard-grid" style={{ marginTop: '32px' }}>
+            <div className="dashboard-grid">
               
-              {/* Employee report submit form */}
+              {/* Employee / Leader report submit form */}
               <div className="glass-card" style={{ padding: '28px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                  <h3>Báo cáo tuần của tôi</h3>
-                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={autoPopulateReport}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+                  <h3>📋 Nộp Báo cáo Tuần</h3>
+                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={autoPopulateReport}>
                     <Sliders size={14} />
-                    Tự động điền từ Goals
+                    Tự động lấy Tasks từ Kanban
                   </button>
                 </div>
 
                 <form onSubmit={handleSubmitReport} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div>
-                    <label className="input-label">Ngày bắt đầu tuần (Thứ Hai)</label>
-                    <input
-                      type="date"
-                      className="input-field"
-                      value={newReport.weekStartDate}
-                      onChange={e => setNewReport(prev => ({ ...prev, weekStartDate: e.target.value }))}
-                      required
-                    />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label className="input-label">Ngày bắt đầu tuần (Thứ Hai)</label>
+                      <input
+                        type="date"
+                        className="input-field"
+                        value={newReport.weekStartDate}
+                        onChange={e => setNewReport(prev => ({ ...prev, weekStartDate: e.target.value }))}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="input-label">Gửi báo cáo đến (Người nhận)</label>
+                      <select
+                        className="input-field"
+                        value={newReport.recipientId}
+                        onChange={e => setNewReport(prev => ({ ...prev, recipientId: e.target.value }))}
+                        required
+                      >
+                        <option value="">-- Chọn Người nhận báo cáo --</option>
+                        {getReportRecipientOptions().map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.fullName} ({u.role === 'admin' ? 'Ban Quản Trị' : departments.find(d => d.id === u.departmentId)?.name || 'Trưởng nhóm'})
+                          </option>
+                        ))}
+                      </select>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        {user.role === 'employee' ? '🔒 Nhân viên chỉ gửi cho Trưởng nhóm cùng bộ phận' : user.role === 'leader' ? '🔒 Trưởng nhóm gửi báo cáo lên Ban Quản Trị (Admin)' : 'Gửi tới Quản trị viên / Trưởng nhóm'}
+                      </div>
+                    </div>
                   </div>
+
                   <div>
-                    <label className="input-label">Công việc đã hoàn thành (Trong tuần này)</label>
+                    <label className="input-label">Công việc đã hoàn thành (Trong tuần này) <span style={{ color: '#ef4444' }}>*</span></label>
                     <textarea
                       className="input-field"
                       rows="4"
@@ -3179,17 +3244,21 @@ export default function App() {
                       style={{ resize: 'vertical' }}
                     />
                   </div>
+
                   <div>
-                    <label className="input-label">Kế hoạch tuần tiếp theo</label>
+                    <label className="input-label">
+                      Dự kiến công việc sẽ triển khai trong tuần sau <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Không bắt buộc điền)</span>
+                    </label>
                     <textarea
                       className="input-field"
                       rows="3"
-                      placeholder="Nêu chi tiết các đầu việc dự kiến triển khai trong tuần tới..."
+                      placeholder="Nêu chi tiết các đầu việc dự kiến triển khai trong tuần tới (nếu có)..."
                       value={newReport.plannedContent}
                       onChange={e => setNewReport(prev => ({ ...prev, plannedContent: e.target.value }))}
                       style={{ resize: 'vertical' }}
                     />
                   </div>
+
                   <div>
                     <label className="input-label">Khó khăn / Vướng mắc (nếu có)</label>
                     <textarea
@@ -3201,114 +3270,136 @@ export default function App() {
                       style={{ resize: 'vertical' }}
                     />
                   </div>
-                  <button type="submit" className="btn btn-primary btn-important-pulse" style={{ alignSelf: 'flex-start' }}>Gửi báo cáo tuần</button>
+
+                  <button type="submit" className="btn btn-primary btn-important-pulse" style={{ alignSelf: 'flex-start', padding: '10px 24px' }}>
+                    🚀 Gửi báo cáo tuần
+                  </button>
                 </form>
               </div>
 
-              {/* Admin/Leader Weekly Synthesis Panel */}
+              {/* Admin/Leader Weekly Reports & Quick Synthesis Panel */}
               {(user.role === 'admin' || user.role === 'leader') && (
-                <div className="glass-card" style={{ padding: '28px' }}>
-                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <TrendingUp size={22} style={{ color: 'var(--accent-secondary)' }} />
-                  Tổng hợp báo cáo cho Admin/Leader
-                </h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px', marginBottom: '20px' }}>
-                  Gom nhóm báo cáo của nhân viên theo phòng ban và tóm tắt ý chính.
-                </p>
-
-                <div style={{ display: 'flex', gap: '10px', marginBottom: '24px' }}>
-                  <input
-                    type="date"
-                    className="input-field"
-                    value={summaryWeek}
-                    onChange={e => setSummaryWeek(e.target.value)}
-                    style={{ flexGrow: 1 }}
-                  />
-                  <button className="btn btn-secondary" onClick={() => fetchWeeklySummary(summaryWeek)}>Xem tổng hợp</button>
-                  {weeklySummary && (
-                    <button className="btn btn-primary btn-important-pulse" onClick={handleExportDoc} style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}>
-                      Xuất File Word (.doc)
-                    </button>
-                  )}
-                </div>
-
-                {weeklySummary ? (
-                  <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ padding: '16px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border-glass)', borderRadius: '12px' }}>
-                      <label className="input-label" style={{ color: 'var(--accent-secondary)' }}>Nhận xét / Ý kiến chỉ đạo của Ban quản lý (Sẽ xuất vào file Word)</label>
-                      <textarea
+                <div className="glass-card" style={{ padding: '28px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <TrendingUp size={22} style={{ color: 'var(--accent-secondary)' }} />
+                      Quản lý & Tổng hợp Báo cáo Nhân sự
+                    </h3>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <input
+                        type="date"
                         className="input-field"
-                        rows="3"
-                        placeholder="Nhập nhận xét tổng quan kỹ thuật, đánh giá tiến độ hoặc các đề xuất chỉ đạo đối với đội R&D..."
-                        value={reportRemarks}
-                        onChange={e => setReportRemarks(e.target.value)}
-                        style={{ resize: 'vertical', marginTop: '6px' }}
+                        style={{ padding: '6px 12px', fontSize: '0.85rem' }}
+                        value={summaryWeek}
+                        onChange={e => setSummaryWeek(e.target.value)}
                       />
+                      <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.85rem' }} onClick={() => fetchWeeklySummary(summaryWeek)}>Xem tổng hợp AI</button>
+                      {weeklySummary && (
+                        <button className="btn btn-primary" onClick={handleExportDoc} style={{ padding: '6px 12px', fontSize: '0.85rem', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}>
+                          Xuất Word
+                        </button>
+                      )}
                     </div>
-                    <div style={{ padding: '16px', background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '12px' }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <AlertCircle size={16} style={{ color: 'var(--accent-primary)' }} />
-                        TỔNG HỢP Ý CHÍNH
-                      </div>
-                      <p style={{ fontSize: '0.85rem', color: '#d1d5db', whiteSpace: 'pre-line', lineHeight: '1.6' }}>
-                        {weeklySummary.synthesizedOverview}
-                      </p>
-                    </div>
+                  </div>
 
-                    {/* Blockers highlighting */}
-                    {weeklySummary.allBlockers.length > 0 && (
-                      <div style={{ padding: '16px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '12px' }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fca5a5', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <AlertTriangle size={16} style={{ color: 'var(--status-overdue)' }} />
-                          KHÓ KHĂN / VƯỚNG MẮC ĐƯỢC BÁO CÁO
+                  {/* Quick Task Status Overview for Selected Week */}
+                  {(() => {
+                    const monday = summaryWeek;
+                    const sunday = new Date(new Date(monday).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                    const weekTasks = tasks.filter(t => {
+                      if (!t.dueDate) return true;
+                      return t.dueDate >= monday && t.dueDate <= sunday;
+                    });
+                    const inProg = weekTasks.filter(t => t.status === 'In Progress');
+                    const overdue = weekTasks.filter(t => t.status !== 'Done' && t.dueDate && t.dueDate < todayStr);
+                    const done = weekTasks.filter(t => t.status === 'Done');
+
+                    return (
+                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: '12px', border: '1px solid rgba(99,102,241,0.2)' }}>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--accent-primary)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <CheckCircle size={16} />
+                          TỔNG HỢP NHANH CÔNG VIỆC TRONG TUẦN ({monday} ➔ {sunday})
                         </div>
-                        <ul style={{ fontSize: '0.85rem', color: '#fca5a5', paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          {weeklySummary.allBlockers.map((blk, idx) => (
-                            <li key={idx}>{blk}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Department summaries */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '10px' }}>
-                      {Object.entries(weeklySummary.departmentsSummary).map(([deptName, deptData]) => {
-                        if (deptData.submittedUsers.length === 0) return null;
-                        return (
-                          <div key={deptName} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '14px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                              <span className="dept-tag">{deptName}</span>
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                Đã nộp: {deptData.submittedUsers.join(', ')}
-                              </span>
-                            </div>
-                            
-                            <div style={{ marginTop: '8px' }}>
-                              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--status-done)', marginBottom: '4px' }}>Đã hoàn thành:</div>
-                              <ul style={{ paddingLeft: '18px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                {deptData.donePoints.map((pt, idx) => <li key={idx}>{pt}</li>)}
-                              </ul>
-                            </div>
-
-                            <div style={{ marginTop: '8px' }}>
-                              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent-primary)', marginBottom: '4px' }}>Kế hoạch tuần tới:</div>
-                              <ul style={{ paddingLeft: '18px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                {deptData.plannedPoints.map((pt, idx) => <li key={idx}>{pt}</li>)}
-                              </ul>
-                            </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                          <div style={{ padding: '10px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#93c5fd' }}>⚙️ Đang thực hiện</div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#3b82f6' }}>{inProg.length} Tasks</div>
                           </div>
-                        );
-                      })}
+                          <div style={{ padding: '10px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#fca5a5' }}>⚠️ Quá hạn / Trễ</div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#ef4444' }}>{overdue.length} Tasks</div>
+                          </div>
+                          <div style={{ padding: '10px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#6ee7b7' }}>✅ Đã hoàn thành</div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#10b981' }}>{done.length} Tasks</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* List of Received Reports for Selected Week */}
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                      DANH SÁCH BÁO CÁO CỦA NHÂN VIÊN GỬI ĐẾN ({reportsList.filter(r => r.weekStartDate === summaryWeek).length})
                     </div>
 
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '350px', overflowY: 'auto' }}>
+                      {reportsList.filter(r => r.weekStartDate === summaryWeek).length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                          Chưa có nhân viên nào gửi báo cáo cho tuần này ({summaryWeek}).
+                        </div>
+                      ) : (
+                        reportsList.filter(r => r.weekStartDate === summaryWeek).map(rep => (
+                          <div
+                            key={rep.id}
+                            style={{
+                              padding: '14px 16px',
+                              borderRadius: '10px',
+                              background: 'rgba(255,255,255,0.02)',
+                              border: '1px solid var(--border-glass)',
+                              display: 'flex',
+                              justify: 'space-between',
+                              alignItems: 'center',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease'
+                            }}
+                            onClick={() => {
+                              setViewingReportModal(rep);
+                              setReportRatingInput(rep.rating || 5);
+                              setReportFeedbackInput(rep.feedback || '');
+                            }}
+                          >
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                <strong style={{ fontSize: '0.9rem', color: '#fff' }}>{rep.senderName}</strong>
+                                <span className="dept-tag" style={{ fontSize: '0.65rem' }}>{rep.departmentName}</span>
+                                {rep.rating && (
+                                  <span style={{ fontSize: '0.75rem', color: '#fbbf24', fontWeight: 700 }}>
+                                    {'★'.repeat(rep.rating)} ({rep.rating}/5)
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                {rep.doneContent}
+                              </div>
+                            </div>
+
+                            <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                              Xem & Đánh giá
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
-                ) : (
-                  <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    Chưa có dữ liệu tổng hợp cho tuần này. Chọn tuần và bấm "Xem tổng hợp".
-                  </div>
-                )}
-              </div>
+
+                </div>
               )}
+
+            </div>
+          </div>
+        )}
 
             </div>
           </div>
@@ -4403,6 +4494,90 @@ export default function App() {
                 <button type="submit" className="btn btn-primary">Lưu thay đổi</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Viewing Report & Feedback Modal */}
+      {viewingReportModal && (
+        <div className="modal-overlay" onClick={() => setViewingReportModal(null)}>
+          <div className="modal-body animate-fade-in" style={{ maxWidth: '650px' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-glass)', paddingBottom: '12px' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Báo cáo tuần: {viewingReportModal.senderName}</h3>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  Phòng: <span className="dept-tag">{viewingReportModal.departmentName}</span> | Gửi đến: <strong>{viewingReportModal.recipientName}</strong>
+                </div>
+              </div>
+              <span className="badge badge-low" style={{ fontSize: '0.75rem' }}>Tuần: {viewingReportModal.weekStartDate}</span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '400px', overflowY: 'auto', paddingRight: '6px' }}>
+              <div style={{ padding: '12px 16px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '10px' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#34d399', marginBottom: '6px' }}>🛠️ Công việc đã hoàn thành trong tuần:</div>
+                <div style={{ fontSize: '0.85rem', color: '#e5e7eb', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
+                  {viewingReportModal.doneContent}
+                </div>
+              </div>
+
+              {viewingReportModal.plannedContent && (
+                <div style={{ padding: '12px 16px', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: '10px' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#60a5fa', marginBottom: '6px' }}>🚀 Dự kiến triển khai tuần sau:</div>
+                  <div style={{ fontSize: '0.85rem', color: '#e5e7eb', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
+                    {viewingReportModal.plannedContent}
+                  </div>
+                </div>
+              )}
+
+              {viewingReportModal.blockers && (
+                <div style={{ padding: '12px 16px', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '10px' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fca5a5', marginBottom: '6px' }}>⚠️ Khó khăn / Vướng mắc:</div>
+                  <div style={{ fontSize: '0.85rem', color: '#fca5a5', whiteSpace: 'pre-wrap' }}>
+                    {viewingReportModal.blockers}
+                  </div>
+                </div>
+              )}
+
+              {/* Review / Feedback Section for Leader / Admin */}
+              {(user.role === 'admin' || user.role === 'leader') && (
+                <form onSubmit={handleSaveReportFeedback} style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '16px', marginTop: '8px' }}>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--accent-primary)', marginBottom: '12px' }}>
+                    ⭐ Đánh giá & Nhận xét của Trưởng nhóm / Admin
+                  </div>
+
+                  <div style={{ marginBottom: '12px' }}>
+                    <label className="input-label">Chấm điểm chất lượng báo cáo (1 - 5 Sao)</label>
+                    <select
+                      className="input-field"
+                      value={reportRatingInput}
+                      onChange={e => setReportRatingInput(e.target.value)}
+                    >
+                      <option value="5">⭐⭐⭐⭐⭐ (5/5 - Xuất sắc)</option>
+                      <option value="4">⭐⭐⭐⭐ (4/5 - Tốt)</option>
+                      <option value="3">⭐⭐⭐ (3/5 - Đạt yêu cầu)</option>
+                      <option value="2">⭐⭐ (2/5 - Cần cải thiện)</option>
+                      <option value="1">⭐ (1/5 - Chưa đạt)</option>
+                    </select>
+                  </div>
+
+                  <div style={{ marginBottom: '16px' }}>
+                    <label className="input-label">Ý kiến nhận xét / Phản hồi của Quản lý</label>
+                    <textarea
+                      className="input-field"
+                      rows="2"
+                      placeholder="Nhập lời khen, góp ý kỹ thuật hoặc phân công điều chỉnh..."
+                      value={reportFeedbackInput}
+                      onChange={e => setReportFeedbackInput(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                    <button type="button" className="btn btn-secondary" onClick={() => setViewingReportModal(null)}>Đóng</button>
+                    <button type="submit" className="btn btn-primary">Lưu Đánh Giá & Gửi Thông Báo</button>
+                  </div>
+                </form>
+              )}
+            </div>
           </div>
         </div>
       )}

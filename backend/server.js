@@ -839,41 +839,105 @@ app.delete('/api/goals/:id', authenticateToken, (req, res) => {
 // --- WEEKLY REPORTS APIS ---
 app.get('/api/reports', authenticateToken, (req, res) => {
   const reports = getAll('reports');
+  const users = getAll('users');
+  const departments = getAll('departments');
+
+  const enriched = reports.map(r => {
+    const sender = users.find(u => u.id === r.userId);
+    const recipient = users.find(u => u.id === r.recipientId);
+    const dept = sender ? departments.find(d => d.id === sender.departmentId) : null;
+    return {
+      ...r,
+      senderName: sender ? sender.fullName : 'N/A',
+      senderRole: sender ? sender.role : '',
+      departmentId: sender ? sender.departmentId : null,
+      departmentName: dept ? dept.name : 'N/A',
+      recipientName: recipient ? recipient.fullName : 'Ban Quản Lý'
+    };
+  });
+
   if (req.user.role === 'admin') {
-    res.json(reports);
+    res.json(enriched);
+  } else if (req.user.role === 'leader') {
+    // Leader sees reports where they are recipient OR sender is in same department OR sent by themselves
+    const filtered = enriched.filter(r => 
+      r.recipientId === req.user.id || 
+      r.userId === req.user.id || 
+      r.departmentId === req.user.departmentId
+    );
+    res.json(filtered);
   } else {
-    res.json(reports.filter(r => r.userId === req.user.id));
+    res.json(enriched.filter(r => r.userId === req.user.id));
   }
 });
 
 app.post('/api/reports', authenticateToken, (req, res) => {
-  const { weekStartDate, doneContent, plannedContent, blockers } = req.body;
+  const { weekStartDate, recipientId, doneContent, plannedContent, blockers } = req.body;
   if (!weekStartDate || !doneContent) {
     return res.status(400).json({ message: 'Thiếu thông tin báo cáo bắt buộc (Ngày bắt đầu tuần, Công việc đã làm).' });
   }
 
-  // Check if user already submitted a report for this week
   const reports = getAll('reports');
   const existing = reports.find(r => r.userId === req.user.id && r.weekStartDate === weekStartDate);
 
+  const payload = {
+    recipientId: recipientId ? Number(recipientId) : null,
+    doneContent,
+    plannedContent: plannedContent || '',
+    blockers: blockers || '',
+    updatedAt: new Date().toISOString()
+  };
+
   if (existing) {
-    // Update existing report
-    const updated = update('reports', existing.id, {
-      doneContent,
-      plannedContent: plannedContent || '',
-      blockers: blockers || ''
-    });
+    const updated = update('reports', existing.id, payload);
     return res.json(updated);
   }
 
   const newReport = insert('reports', {
     userId: req.user.id,
     weekStartDate,
-    doneContent,
-    plannedContent: plannedContent || '',
-    blockers: blockers || ''
+    ...payload,
+    rating: null,
+    feedback: '',
+    createdAt: new Date().toISOString()
   });
+
+  // Notify recipient via Telegram if configured
+  if (recipientId) {
+    const recipientUser = getById('users', recipientId);
+    if (recipientUser && recipientUser.telegramChatId) {
+      sendTelegramMessage(
+        recipientUser.telegramChatId, 
+        `📋 <b>BÁO CÁO TUẦN MỚI</b>\n\nNgười gửi: <b>${req.user.fullName}</b>\nTuần: <b>${weekStartDate}</b>\n\n- Đã làm: ${doneContent.substring(0, 120)}...`
+      );
+    }
+  }
+
   res.status(201).json(newReport);
+});
+
+app.put('/api/reports/:id/feedback', authenticateToken, requireLeaderOrAdmin, (req, res) => {
+  const report = getById('reports', req.params.id);
+  if (!report) return res.status(404).json({ message: 'Không tìm thấy báo cáo.' });
+
+  const { rating, feedback } = req.body;
+  const updated = update('reports', req.params.id, {
+    rating: rating !== undefined ? Number(rating) : report.rating,
+    feedback: feedback !== undefined ? feedback : report.feedback,
+    reviewedBy: req.user.fullName,
+    reviewedAt: new Date().toISOString()
+  });
+
+  // Notify report author via Telegram if configured
+  const author = getById('users', report.userId);
+  if (author && author.telegramChatId) {
+    sendTelegramMessage(
+      author.telegramChatId,
+      `⭐ <b>PHẢN HỒI BÁO CÁO TUẦN (${report.weekStartDate})</b>\n\nNgười đánh giá: <b>${req.user.fullName}</b>\nĐánh giá: <b>${updated.rating || 5}/5 ⭐</b>\nNhận xét: ${updated.feedback || 'Đã duyệt'}`
+    );
+  }
+
+  res.json(updated);
 });
 
 // Trợ lý gọi API Gemini tóm tắt báo cáo tuần
@@ -1709,6 +1773,20 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`- Mạng nội bộ: http://0.0.0.0:${PORT}`);
   console.log(`==================================================`);
 });
+
+async function sendTelegramMessage(chatId, messageText) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: messageText, parse_mode: 'HTML' })
+    });
+  } catch (err) {
+    console.error("Lỗi gửi tin nhắn Telegram:", err);
+  }
+}
 
 let lastUpdateId = 0;
 async function pollTelegramUpdates() {
