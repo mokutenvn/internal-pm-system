@@ -292,6 +292,15 @@ export default function App() {
         fetch(`${API_BASE}/dashboard/stats`, { headers })
       ]);
 
+      if (deptsRes.status === 401 || deptsRes.status === 403) {
+        const errData = await deptsRes.json().catch(() => ({}));
+        if (errData.message && errData.message.includes('Token')) {
+          alert("Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại!");
+          handleLogout();
+          return;
+        }
+      }
+
       if (deptsRes.ok) setDepartments(await deptsRes.json());
       if (projRes.ok) {
         const prjs = await projRes.json();
@@ -496,6 +505,11 @@ export default function App() {
         alert("Tạo dự án thành công!");
       } else {
         const data = await res.json();
+        if (res.status === 401 || (data.message && data.message.includes('Token'))) {
+          alert("Phiên đăng nhập của bạn đã hết hạn. Vui lòng đăng nhập lại!");
+          handleLogout();
+          return;
+        }
         alert(data.message || 'Lỗi khi tạo dự án.');
       }
     } catch (err) {
