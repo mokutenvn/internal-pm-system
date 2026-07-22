@@ -185,6 +185,8 @@ export default function App() {
 
   // New R&D Modals toggle
   const [showSprintModal, setShowSprintModal] = useState(false);
+  const [showEditSprintModal, setShowEditSprintModal] = useState(false);
+  const [editingSprint, setEditingSprint] = useState(null);
   const [newSprint, setNewSprint] = useState({ 
     name: 'Sprint 1 - Thiết kế mạch & Nạp Bootloader', 
     goal: 'Hoàn thiện bản vẽ PCB nguyên lý và nạp thành công Bootloader qua cổng nạp SWD', 
@@ -661,6 +663,41 @@ export default function App() {
       });
       if (res.ok) {
         fetchCoreData();
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Lỗi cập nhật trạng thái Sprint.');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateSprintFull = async (e) => {
+    e.preventDefault();
+    if (!editingSprint) return;
+    try {
+      const res = await fetch(`${API_BASE}/sprints/${editingSprint.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: editingSprint.name,
+          goal: editingSprint.goal,
+          startDate: editingSprint.startDate,
+          endDate: editingSprint.endDate,
+          status: editingSprint.status
+        })
+      });
+      if (res.ok) {
+        setShowEditSprintModal(false);
+        setEditingSprint(null);
+        fetchCoreData();
+        alert("Cập nhật thông tin Sprint thành công!");
+      } else {
+        const data = await res.json();
+        alert(data.message || 'Lỗi cập nhật thông tin Sprint.');
       }
     } catch (err) {
       console.error(err);
@@ -2924,17 +2961,32 @@ export default function App() {
                     </div>
 
                     {(user.role === 'admin' || user.role === 'leader') && (
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        {activeSprint.status !== 'Active' && (
-                          <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '0.8rem' }} onClick={() => handleUpdateSprintStatus(activeSprint.id, 'Active')}>
-                            ▶ Bắt đầu Sprint
-                          </button>
-                        )}
-                        {activeSprint.status === 'Active' && (
-                          <button className="btn btn-success-approve" style={{ padding: '6px 14px', fontSize: '0.8rem' }} onClick={() => handleUpdateSprintStatus(activeSprint.id, 'Completed')}>
-                            ✓ Hoàn thành Sprint
-                          </button>
-                        )}
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                          onClick={() => {
+                            setEditingSprint({ ...activeSprint });
+                            setShowEditSprintModal(true);
+                          }}
+                        >
+                          Sửa thông tin Sprint
+                        </button>
+                        
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Trạng thái:</span>
+                          <select
+                            className="input-field"
+                            style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto' }}
+                            value={activeSprint.status || 'Planned'}
+                            onChange={e => handleUpdateSprintStatus(activeSprint.id, e.target.value)}
+                          >
+                            <option value="Planned">📋 Kế hoạch</option>
+                            <option value="Active">🚀 Đang chạy</option>
+                            <option value="Completed">✔️ Hoàn thành</option>
+                          </select>
+                        </div>
+
                         <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#ef4444' }} onClick={() => handleDeleteSprint(activeSprint.id)}>
                           Xóa Sprint
                         </button>
@@ -4283,6 +4335,72 @@ export default function App() {
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setShowSprintModal(false)}>Hủy</button>
                 <button type="submit" className="btn btn-primary">Tạo Sprint</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Sprint Modal */}
+      {showEditSprintModal && editingSprint && (
+        <div className="modal-overlay" onClick={() => setShowEditSprintModal(false)}>
+          <div className="modal-body animate-fade-in" onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginBottom: '20px' }}>Chỉnh sửa thông tin Sprint</h3>
+            <form onSubmit={handleUpdateSprintFull} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="input-label">Tên Sprint</label>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={editingSprint.name || ''}
+                  onChange={e => setEditingSprint({ ...editingSprint, name: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <label className="input-label">Mục tiêu Sprint (Sprint Goal)</label>
+                <textarea
+                  className="input-field"
+                  rows="3"
+                  value={editingSprint.goal || ''}
+                  onChange={e => setEditingSprint({ ...editingSprint, goal: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label className="input-label">Ngày bắt đầu</label>
+                  <input
+                    type="date"
+                    className="input-field"
+                    value={editingSprint.startDate || ''}
+                    onChange={e => setEditingSprint({ ...editingSprint, startDate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="input-label">Ngày kết thúc</label>
+                  <input
+                    type="date"
+                    className="input-field"
+                    value={editingSprint.endDate || ''}
+                    onChange={e => setEditingSprint({ ...editingSprint, endDate: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="input-label">Trạng thái Sprint</label>
+                <select
+                  className="input-field"
+                  value={editingSprint.status || 'Planned'}
+                  onChange={e => setEditingSprint({ ...editingSprint, status: e.target.value })}
+                >
+                  <option value="Planned">📋 Kế hoạch (Planned)</option>
+                  <option value="Active">🚀 Đang chạy (Active)</option>
+                  <option value="Completed">✔️ Hoàn thành (Completed)</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '10px' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowEditSprintModal(false)}>Hủy</button>
+                <button type="submit" className="btn btn-primary">Lưu thay đổi</button>
               </div>
             </form>
           </div>
