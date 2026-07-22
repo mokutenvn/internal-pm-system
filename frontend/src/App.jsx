@@ -145,6 +145,7 @@ export default function App() {
   const [registerFullName, setRegisterFullName] = useState('');
   const [registerUsername, setRegisterUsername] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
+  const [registerDepartmentId, setRegisterDepartmentId] = useState('1');
   const [successMsg, setSuccessMsg] = useState('');
 
   // Danh sách tài khoản đăng ký chờ phê duyệt
@@ -179,6 +180,7 @@ export default function App() {
   const [dashboardTasksPage, setDashboardTasksPage] = useState(1);
   const [kanbanPages, setKanbanPages] = useState({ 'Backlog': 1, 'To Do': 1, 'In Progress': 1, 'Review': 1, 'Done': 1 });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [telegramConfig, setTelegramConfig] = useState({ botUsername: 'pm_system_alert_bot', isConfigured: false });
 
 
   // New R&D Modals toggle
@@ -325,6 +327,10 @@ export default function App() {
       const reportsRes = await fetch(`${API_BASE}/reports`, { headers });
       if (reportsRes.ok) setReports(await reportsRes.json());
 
+      // Fetch Telegram Bot configuration
+      const tgConfigRes = await fetch(`${API_BASE}/telegram/config`, { headers });
+      if (tgConfigRes.ok) setTelegramConfig(await tgConfigRes.json());
+
     } catch (err) {
       console.error("Lỗi tải dữ liệu: ", err);
     } finally {
@@ -391,7 +397,8 @@ export default function App() {
         const data = await res.json();
         setUser(data.user);
         localStorage.setItem('user', JSON.stringify(data.user));
-        alert(data.message);
+        alert(data.message || 'Đã hủy liên kết Telegram.');
+        fetchCoreData();
       } else {
         const data = await res.json();
         alert(data.message || 'Lỗi khi hủy liên kết.');
@@ -413,7 +420,8 @@ export default function App() {
         body: JSON.stringify({
           username: registerUsername,
           password: registerPassword,
-          fullName: registerFullName
+          fullName: registerFullName,
+          departmentId: registerDepartmentId
         })
       });
       const data = await res.json();
@@ -424,6 +432,7 @@ export default function App() {
       setRegisterUsername('');
       setRegisterPassword('');
       setRegisterFullName('');
+      setRegisterDepartmentId('1');
       setIsLoginTab(true);
     } catch (err) {
       setErrorMsg(err.message);
@@ -433,7 +442,9 @@ export default function App() {
   };
 
   const handleApproveUser = async (userId) => {
-    const deptId = user.role === 'leader' ? user.departmentId.toString() : (approvalDepts[userId] || '1');
+    const targetPending = pendingUsers.find(u => u.id === userId);
+    const defaultDept = targetPending && targetPending.departmentId ? targetPending.departmentId.toString() : '1';
+    const deptId = user.role === 'leader' ? user.departmentId.toString() : (approvalDepts[userId] || defaultDept);
     const role = approvalRoles[userId] || 'employee';
     try {
       const res = await fetch(`${API_BASE}/users/${userId}/approve`, {
@@ -592,6 +603,8 @@ export default function App() {
       console.error(err);
     }
   };
+
+
 
   const handleUpdateTaskProgress = async (taskId, progress) => {
     try {
@@ -1376,6 +1389,19 @@ export default function App() {
                   required
                 />
               </div>
+              <div style={{ marginBottom: '16px' }}>
+                <label className="input-label">Nhiệm vụ / Bộ phận chuyên môn</label>
+                <select
+                  className="input-field"
+                  value={registerDepartmentId}
+                  onChange={e => setRegisterDepartmentId(e.target.value)}
+                >
+                  <option value="1">Hardware (Phần cứng)</option>
+                  <option value="2">Firmware (Phần mềm nhúng)</option>
+                  <option value="3">Sản xuất (Manufacturing)</option>
+                  <option value="4">Industrial Design (Thiết kế dáng mẫu)</option>
+                </select>
+              </div>
               <div style={{ marginBottom: '24px' }}>
                 <label className="input-label">Mật khẩu</label>
                 <input
@@ -1944,25 +1970,37 @@ export default function App() {
               </div>
               <div className="dashboard-header-right">
                 <a 
-                  href={`https://t.me/pm_system_alert_bot?start=${user.id}`} 
-                  target="_blank" 
+                  href={telegramConfig.isConfigured ? `https://t.me/${telegramConfig.botUsername}?start=${user.id}` : '#'} 
+                  target={telegramConfig.isConfigured ? "_blank" : "_self"} 
                   rel="noopener noreferrer" 
                   className="btn"
+                  onClick={(e) => {
+                    if (!telegramConfig.isConfigured) {
+                      e.preventDefault();
+                      alert("⚠️ TELEGRAM BOT CHƯA ĐƯỢC CẤU HÌNH TOKEN!\n\nHướng dẫn mở Bot Telegram:\n1. Mở app Telegram, tìm kiếm @BotFather và gõ /newbot để tạo Bot mới.\n2. Sao chép Bot Token và Username vừa tạo.\n3. Mở file 'backend/.env' và điền:\n   TELEGRAM_BOT_TOKEN=7xxx:xxx...\n   TELEGRAM_BOT_USERNAME=TênBotCủaBạn\n4. Khởi động lại backend server.");
+                    }
+                  }}
                   style={{ 
                     display: 'flex', 
                     alignItems: 'center', 
                     gap: '8px', 
                     textDecoration: 'none', 
-                    background: user.telegramChatId ? 'rgba(16, 185, 129, 0.12)' : 'rgba(59, 130, 246, 0.12)', 
-                    border: user.telegramChatId ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(59, 130, 246, 0.3)', 
-                    color: user.telegramChatId ? '#34d399' : '#60a5fa',
+                    background: user.telegramChatId ? 'rgba(16, 185, 129, 0.12)' : telegramConfig.isConfigured ? 'rgba(59, 130, 246, 0.12)' : 'rgba(245, 158, 11, 0.12)', 
+                    border: user.telegramChatId ? '1px solid rgba(16, 185, 129, 0.3)' : telegramConfig.isConfigured ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid rgba(245, 158, 11, 0.3)', 
+                    color: user.telegramChatId ? '#34d399' : telegramConfig.isConfigured ? '#60a5fa' : '#fbbf24',
                     padding: '8px 16px',
                     fontSize: '0.85rem'
                   }}
-                  title={user.telegramChatId ? `Đã liên kết Telegram ID: ${user.telegramChatId}` : 'Nhấp để liên kết với Telegram Bot nhận thông báo'}
+                  title={
+                    user.telegramChatId 
+                      ? `Đã liên kết Telegram ID: ${user.telegramChatId}` 
+                      : telegramConfig.isConfigured 
+                        ? `Nhấp để mở Telegram Bot (@${telegramConfig.botUsername}) và liên kết` 
+                        : 'Chưa điền Token Telegram trong file backend/.env'
+                  }
                 >
                   <Activity size={16} />
-                  <span>{user.telegramChatId ? 'Đã liên kết Telegram' : 'Liên kết Telegram'}</span>
+                  <span>{user.telegramChatId ? 'Đã liên kết Telegram' : telegramConfig.isConfigured ? 'Liên kết Telegram' : 'Chưa cấu hình Token Telegram'}</span>
                 </a>
                 {user.telegramChatId && (
                   <button 
@@ -2698,60 +2736,205 @@ export default function App() {
               </div>
             </div>
 
-            {/* Project & Sprint selection bar */}
-            <div className="glass-card" style={{ padding: '16px 24px', display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '24px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Dự án:</span>
-                <select
-                  className="input-field"
-                  style={{ width: '220px', padding: '6px 12px' }}
-                  value={selectedProjectId}
-                  onChange={e => {
-                    setSelectedProjectId(e.target.value);
-                    setSelectedSprintId(''); // Reset selected sprint
-                  }}
-                >
-                  {projects.map(p => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
-                </select>
-                {(user.role === 'admin' || user.role === 'leader') && selectedProjectId && (
-                  <button
-                    className="btn btn-secondary"
-                    style={{ padding: '6px 12px', fontSize: '0.8rem' }}
-                    onClick={() => {
-                      const projToEdit = projects.find(p => p.id === Number(selectedProjectId));
-                      if (projToEdit) {
-                        setEditingProject(projToEdit);
-                        setShowEditProjectModal(true);
-                      }
+            {/* Project & Sprint Control Bar */}
+            <div className="glass-card" style={{ padding: '20px 24px', marginBottom: '24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <FolderKanban size={24} style={{ color: 'var(--accent-primary)' }} />
+                  <div>
+                    <div style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700, letterSpacing: '0.05em' }}>ĐANG CHỌN DỰ ÁN</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '2px' }}>
+                      <select
+                        className="input-field"
+                        style={{ padding: '6px 14px', fontSize: '1rem', fontWeight: 700, minWidth: '260px' }}
+                        value={selectedProjectId}
+                        onChange={e => {
+                          setSelectedProjectId(e.target.value);
+                          setSelectedSprintId('');
+                        }}
+                      >
+                        {projects.map(p => <option key={p.id} value={p.id}>{p.code} - {p.name}</option>)}
+                      </select>
+                      {(user.role === 'admin' || user.role === 'leader') && selectedProjectId && (
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                          onClick={() => {
+                            const projToEdit = projects.find(p => p.id === Number(selectedProjectId));
+                            if (projToEdit) {
+                              setEditingProject(projToEdit);
+                              setShowEditProjectModal(true);
+                            }
+                          }}
+                        >
+                          Sửa thông tin
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Project Stats Quick Badges */}
+                {(() => {
+                  const currentProj = projects.find(p => p.id === Number(selectedProjectId));
+                  const projSprints = sprints.filter(s => s.projectId === Number(selectedProjectId));
+                  const projTasks = tasks.filter(t => t.projectId === Number(selectedProjectId));
+                  return (
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span className="badge badge-low" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                        Trạng thái: <strong>{currentProj ? currentProj.status : 'Active'}</strong>
+                      </span>
+                      <span className="badge badge-medium" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                        Sprints: <strong>{projSprints.length}</strong>
+                      </span>
+                      <span className="badge badge-done" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+                        Tổng Tasks: <strong>{projTasks.length}</strong>
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Sprints Interactive Cards / Roadmap Strip */}
+              <div style={{ borderTop: '1px solid var(--border-glass)', paddingTop: '16px', marginTop: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--accent-secondary)', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Clock size={16} />
+                    DANH SÁCH SPRINTS THUỘC DỰ ÁN
+                  </div>
+                  {(user.role === 'admin' || user.role === 'leader') && (
+                    <button 
+                      className="btn btn-secondary" 
+                      style={{ padding: '4px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }} 
+                      onClick={() => setShowSprintModal(true)}
+                    >
+                      <Plus size={14} />
+                      Tạo Sprint mới
+                    </button>
+                  )}
+                </div>
+
+                {/* Sprints Cards list */}
+                <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '8px', WebkitOverflowScrolling: 'touch' }}>
+                  {/* Backlog / All option card */}
+                  <div
+                    onClick={() => setSelectedSprintId('')}
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: '12px',
+                      background: selectedSprintId === '' ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255,255,255,0.03)',
+                      border: selectedSprintId === '' ? '2px solid var(--accent-primary)' : '1px solid var(--border-glass)',
+                      cursor: 'pointer',
+                      minWidth: '180px',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justify: 'space-between'
                     }}
                   >
-                    Sửa
-                  </button>
-                )}
-              </div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: selectedSprintId === '' ? '#fff' : 'var(--text-secondary)' }}>
+                      📂 Tất cả / Backlog
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+                      {tasks.filter(t => t.projectId === Number(selectedProjectId) && !t.sprintId).length} Tasks chưa gán Sprint
+                    </div>
+                  </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Sprint:</span>
-                <select
-                  className="input-field"
-                  style={{ width: '220px', padding: '6px 12px' }}
-                  value={selectedSprintId}
-                  onChange={e => setSelectedSprintId(e.target.value)}
-                >
-                  <option value="">Tất cả / Backlog</option>
-                  {sprints.filter(s => s.projectId === Number(selectedProjectId)).map(s => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.status})</option>
-                  ))}
-                </select>
-              </div>
+                  {/* Individual Sprint Cards */}
+                  {sprints.filter(s => s.projectId === Number(selectedProjectId)).map(s => {
+                    const isSelected = selectedSprintId === s.id.toString();
+                    const sprintTasks = tasks.filter(t => t.projectId === Number(selectedProjectId) && t.sprintId === s.id);
+                    const completedTasks = sprintTasks.filter(t => t.status === 'Done');
+                    const progressPct = sprintTasks.length > 0 ? Math.round((completedTasks.length / sprintTasks.length) * 100) : 0;
+                    
+                    let statusBadgeClass = 'badge-low';
+                    let statusLabel = '📋 Kế hoạch';
+                    if (s.status === 'Active') {
+                      statusBadgeClass = 'badge-done';
+                      statusLabel = '🚀 Đang chạy';
+                    } else if (s.status === 'Completed') {
+                      statusBadgeClass = 'badge-medium';
+                      statusLabel = '✔️ Hoàn thành';
+                    }
 
-              {selectedSprintId && (user.role === 'admin' || user.role === 'leader') && (
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleUpdateSprintStatus(Number(selectedSprintId), 'Active')}>Chạy Sprint</button>
-                  <button className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => handleUpdateSprintStatus(Number(selectedSprintId), 'Completed')}>Hoàn thành</button>
-                  <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#ef4444' }} onClick={() => handleDeleteSprint(Number(selectedSprintId))}>Xóa</button>
+                    return (
+                      <div
+                        key={s.id}
+                        onClick={() => setSelectedSprintId(s.id.toString())}
+                        style={{
+                          padding: '12px 16px',
+                          borderRadius: '12px',
+                          background: isSelected ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255,255,255,0.03)',
+                          border: isSelected ? '2px solid var(--accent-primary)' : '1px solid var(--border-glass)',
+                          cursor: 'pointer',
+                          minWidth: '240px',
+                          transition: 'all 0.2s ease',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span className={`badge ${statusBadgeClass}`} style={{ fontSize: '0.65rem', padding: '2px 6px' }}>{statusLabel}</span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>{sprintTasks.length} Tasks ({progressPct}%)</span>
+                        </div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isSelected ? '#fff' : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {s.name}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          📅 {s.startDate} ➔ {s.endDate}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {sprints.filter(s => s.projectId === Number(selectedProjectId)).length === 0 && (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '10px', fontStyle: 'italic' }}>
+                      Chưa có Sprint nào cho dự án này. Nhấp "+ Tạo Sprint mới" để bắt đầu.
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
+
+              {/* Active / Selected Sprint Banner Details */}
+              {selectedSprintId && (() => {
+                const activeSprint = sprints.find(s => s.id === Number(selectedSprintId));
+                if (!activeSprint) return null;
+                return (
+                  <div style={{ marginTop: '16px', background: 'rgba(0,0,0,0.2)', padding: '14px 18px', borderRadius: '12px', border: '1px solid rgba(99,102,241,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                    <div style={{ flex: 1, minWidth: '280px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <Target size={16} style={{ color: 'var(--accent-primary)' }} />
+                        <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)' }}>Mục tiêu {activeSprint.name}:</strong>
+                        <span className={`badge ${activeSprint.status === 'Active' ? 'badge-done' : activeSprint.status === 'Completed' ? 'badge-medium' : 'badge-low'}`} style={{ fontSize: '0.7rem' }}>
+                          {activeSprint.status}
+                        </span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        {activeSprint.goal || 'Chưa có thông tin mục tiêu.'}
+                      </p>
+                    </div>
+
+                    {(user.role === 'admin' || user.role === 'leader') && (
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        {activeSprint.status !== 'Active' && (
+                          <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '0.8rem' }} onClick={() => handleUpdateSprintStatus(activeSprint.id, 'Active')}>
+                            ▶ Bắt đầu Sprint
+                          </button>
+                        )}
+                        {activeSprint.status === 'Active' && (
+                          <button className="btn btn-success-approve" style={{ padding: '6px 14px', fontSize: '0.8rem' }} onClick={() => handleUpdateSprintStatus(activeSprint.id, 'Completed')}>
+                            ✓ Hoàn thành Sprint
+                          </button>
+                        )}
+                        <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '0.8rem', background: '#ef4444' }} onClick={() => handleDeleteSprint(activeSprint.id)}>
+                          Xóa Sprint
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Department filters */}
@@ -3490,7 +3673,7 @@ export default function App() {
                               <select
                                 className="input-field"
                                 style={{ padding: '6px 12px', fontSize: '0.85rem', width: 'auto' }}
-                                value={approvalDepts[u.id] || '1'}
+                                value={approvalDepts[u.id] || (u.departmentId ? u.departmentId.toString() : '1')}
                                 onChange={e => setApprovalDepts({ ...approvalDepts, [u.id]: e.target.value })}
                               >
                                 {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}

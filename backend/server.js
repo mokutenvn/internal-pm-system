@@ -101,12 +101,12 @@ app.post('/api/auth/login', async (req, res) => {
 
   res.json({
     token,
-    user: { id: user.id, username: user.username, fullName: user.fullName, role: user.role, departmentId: user.departmentId }
+    user: { id: user.id, username: user.username, fullName: user.fullName, role: user.role, departmentId: user.departmentId, telegramChatId: user.telegramChatId || null }
   });
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const { username, password, fullName } = req.body;
+  const { username, password, fullName, departmentId } = req.body;
   if (!username || !password || !fullName) {
     return res.status(400).json({ message: 'Vui lòng điền đầy đủ thông tin đăng ký.' });
   }
@@ -124,7 +124,7 @@ app.post('/api/auth/register', async (req, res) => {
     passwordHash,
     fullName,
     role: 'employee',
-    departmentId: null,
+    departmentId: departmentId ? Number(departmentId) : 1,
     isApproved: false
   });
 
@@ -135,7 +135,14 @@ app.post('/api/auth/register', async (req, res) => {
 app.get('/api/auth/me', authenticateToken, (req, res) => {
   const user = getById('users', req.user.id);
   if (!user) return res.status(404).json({ message: 'Không tìm thấy người dùng.' });
-  res.json({ id: user.id, username: user.username, fullName: user.fullName, role: user.role, departmentId: user.departmentId });
+  res.json({ id: user.id, username: user.username, fullName: user.fullName, role: user.role, departmentId: user.departmentId, telegramChatId: user.telegramChatId || null });
+});
+
+app.get('/api/telegram/config', authenticateToken, (req, res) => {
+  res.json({
+    botUsername: process.env.TELEGRAM_BOT_USERNAME || 'pm_system_alert_bot',
+    isConfigured: !!process.env.TELEGRAM_BOT_TOKEN
+  });
 });
 
 // --- DEPARTMENTS APIS ---
@@ -1694,12 +1701,17 @@ async function pollTelegramUpdates() {
   try {
     const url = `https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId + 1}&timeout=5`;
     const res = await fetch(url);
-    if (!res.ok) return;
+    if (!res.ok) {
+      console.error(`[Telegram Poll Warning] HTTP ${res.status}: ${res.statusText}`);
+      return;
+    }
 
     const data = await res.json();
-    if (data.ok && data.result.length > 0) {
+    if (data.ok && Array.isArray(data.result) && data.result.length > 0) {
       for (const updateObj of data.result) {
-        lastUpdateId = updateObj.update_id;
+        if (updateObj.update_id) {
+          lastUpdateId = Math.max(lastUpdateId, updateObj.update_id);
+        }
         const message = updateObj.message;
         if (!message || !message.text) continue;
 
@@ -1708,33 +1720,36 @@ async function pollTelegramUpdates() {
         const telegramUser = message.from?.username || message.from?.first_name || 'User';
 
         if (text.startsWith('/start')) {
-          const parts = text.split(' ');
-          if (parts.length > 1) {
-            const userId = Number(parts[1]);
-            if (userId) {
-              const u = getById('users', userId);
-              if (u) {
-                // Link telegram chat ID to user
-                update('users', userId, { telegramChatId: chatId });
-                
-                const responseText = `<b>[PM System]</b>\nXin chào <b>${u.fullName}</b> (@${u.username})!\nTài khoản của bạn đã được liên kết với Telegram của <b>${telegramUser}</b> thành công.\n\nTừ giờ, bạn sẽ nhận được thông báo trực tiếp khi được giao việc hoặc có cập nhật công việc quan trọng.`;
-                
-                await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ chat_id: chatId, text: responseText, parse_mode: 'HTML' })
-                });
-                
-                console.log(`[Telegram Link] Linked user ID ${userId} to chat ID ${chatId}`);
+          try {
+            const parts = text.split(' ');
+            if (parts.length > 1) {
+              const userId = Number(parts[1]);
+              if (userId) {
+                const u = getById('users', userId);
+                if (u) {
+                  update('users', userId, { telegramChatId: chatId });
+                  
+                  const responseText = `<b>[PM System]</b>\nXin chào <b>${escapeHtml(u.fullName)}</b> (@${escapeHtml(u.username)})!\nTài khoản của bạn đã được liên kết với Telegram của <b>${escapeHtml(telegramUser)}</b> thành công.\n\nTừ giờ, bạn sẽ nhận được thông báo trực tiếp khi được giao việc hoặc có cập nhật công việc quan trọng.`;
+                  
+                  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: chatId, text: responseText, parse_mode: 'HTML' })
+                  });
+                  
+                  console.log(`[Telegram Link] Linked user ID ${userId} to chat ID ${chatId}`);
+                }
               }
+            } else {
+              const responseText = `Chào mừng bạn đến với bot thông báo PM System!\nĐể liên kết tài khoản, vui lòng truy cập Dashboard trên website và nhấp vào nút "Liên kết Telegram".`;
+              await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chatId, text: responseText })
+              });
             }
-          } else {
-            const responseText = `Chào mừng bạn đến với bot thông báo PM System!\nĐể liên kết tài khoản, vui lòng truy cập Dashboard trên website và nhấp vào nút "Liên kết Telegram".`;
-            await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ chat_id: chatId, text: responseText })
-            });
+          } catch (sendErr) {
+            console.error("Lỗi khi phản hồi tin nhắn Telegram:", sendErr);
           }
         }
       }
