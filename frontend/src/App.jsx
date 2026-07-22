@@ -3401,10 +3401,6 @@ export default function App() {
           </div>
         )}
 
-            </div>
-          </div>
-        )}
-
         {/* 2.1. STANDUP TAB */}
         {activeTab === 'standup' && (
           <div className="animate-fade-in">
