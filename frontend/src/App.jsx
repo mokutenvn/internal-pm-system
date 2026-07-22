@@ -180,6 +180,7 @@ export default function App() {
   const [dashboardTasksPage, setDashboardTasksPage] = useState(1);
   const [kanbanPages, setKanbanPages] = useState({ 'Backlog': 1, 'To Do': 1, 'In Progress': 1, 'Review': 1, 'Done': 1 });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [telegramConfig, setTelegramConfig] = useState({ botUsername: 'pm_system_alert_bot', isConfigured: false });
 
 
   // New R&D Modals toggle
@@ -322,6 +323,10 @@ export default function App() {
       // Fetch user's own reports
       const reportsRes = await fetch(`${API_BASE}/reports`, { headers });
       if (reportsRes.ok) setReports(await reportsRes.json());
+
+      // Fetch Telegram Bot configuration
+      const tgConfigRes = await fetch(`${API_BASE}/telegram/config`, { headers });
+      if (tgConfigRes.ok) setTelegramConfig(await tgConfigRes.json());
 
     } catch (err) {
       console.error("Lỗi tải dữ liệu: ", err);
@@ -589,6 +594,25 @@ export default function App() {
       } else {
         const data = await res.json();
         alert(data.message || 'Lỗi khi xóa dự án.');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUnlinkTelegram = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/users/unlink-telegram`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setUser({ ...user, telegramChatId: null });
+        alert(data.message || 'Đã hủy liên kết Telegram.');
+        fetchCoreData();
+      } else {
+        alert(data.message || 'Không thể hủy liên kết.');
       }
     } catch (err) {
       console.error(err);
@@ -1959,25 +1983,37 @@ export default function App() {
               </div>
               <div className="dashboard-header-right">
                 <a 
-                  href={`https://t.me/pm_system_alert_bot?start=${user.id}`} 
-                  target="_blank" 
+                  href={telegramConfig.isConfigured ? `https://t.me/${telegramConfig.botUsername}?start=${user.id}` : '#'} 
+                  target={telegramConfig.isConfigured ? "_blank" : "_self"} 
                   rel="noopener noreferrer" 
                   className="btn"
+                  onClick={(e) => {
+                    if (!telegramConfig.isConfigured) {
+                      e.preventDefault();
+                      alert("⚠️ TELEGRAM BOT CHƯA ĐƯỢC CẤU HÌNH TOKEN!\n\nHướng dẫn mở Bot Telegram:\n1. Mở app Telegram, tìm kiếm @BotFather và gõ /newbot để tạo Bot mới.\n2. Sao chép Bot Token và Username vừa tạo.\n3. Mở file 'backend/.env' và điền:\n   TELEGRAM_BOT_TOKEN=7xxx:xxx...\n   TELEGRAM_BOT_USERNAME=TênBotCủaBạn\n4. Khởi động lại backend server.");
+                    }
+                  }}
                   style={{ 
                     display: 'flex', 
                     alignItems: 'center', 
                     gap: '8px', 
                     textDecoration: 'none', 
-                    background: user.telegramChatId ? 'rgba(16, 185, 129, 0.12)' : 'rgba(59, 130, 246, 0.12)', 
-                    border: user.telegramChatId ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(59, 130, 246, 0.3)', 
-                    color: user.telegramChatId ? '#34d399' : '#60a5fa',
+                    background: user.telegramChatId ? 'rgba(16, 185, 129, 0.12)' : telegramConfig.isConfigured ? 'rgba(59, 130, 246, 0.12)' : 'rgba(245, 158, 11, 0.12)', 
+                    border: user.telegramChatId ? '1px solid rgba(16, 185, 129, 0.3)' : telegramConfig.isConfigured ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid rgba(245, 158, 11, 0.3)', 
+                    color: user.telegramChatId ? '#34d399' : telegramConfig.isConfigured ? '#60a5fa' : '#fbbf24',
                     padding: '8px 16px',
                     fontSize: '0.85rem'
                   }}
-                  title={user.telegramChatId ? `Đã liên kết Telegram ID: ${user.telegramChatId}` : 'Nhấp để liên kết với Telegram Bot nhận thông báo'}
+                  title={
+                    user.telegramChatId 
+                      ? `Đã liên kết Telegram ID: ${user.telegramChatId}` 
+                      : telegramConfig.isConfigured 
+                        ? `Nhấp để mở Telegram Bot (@${telegramConfig.botUsername}) và liên kết` 
+                        : 'Chưa điền Token Telegram trong file backend/.env'
+                  }
                 >
                   <Activity size={16} />
-                  <span>{user.telegramChatId ? 'Đã liên kết Telegram' : 'Liên kết Telegram'}</span>
+                  <span>{user.telegramChatId ? 'Đã liên kết Telegram' : telegramConfig.isConfigured ? 'Liên kết Telegram' : 'Chưa cấu hình Token Telegram'}</span>
                 </a>
                 {user.telegramChatId && (
                   <button 

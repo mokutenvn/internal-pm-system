@@ -101,7 +101,7 @@ app.post('/api/auth/login', async (req, res) => {
 
   res.json({
     token,
-    user: { id: user.id, username: user.username, fullName: user.fullName, role: user.role, departmentId: user.departmentId }
+    user: { id: user.id, username: user.username, fullName: user.fullName, role: user.role, departmentId: user.departmentId, telegramChatId: user.telegramChatId || null }
   });
 });
 
@@ -135,7 +135,14 @@ app.post('/api/auth/register', async (req, res) => {
 app.get('/api/auth/me', authenticateToken, (req, res) => {
   const user = getById('users', req.user.id);
   if (!user) return res.status(404).json({ message: 'Không tìm thấy người dùng.' });
-  res.json({ id: user.id, username: user.username, fullName: user.fullName, role: user.role, departmentId: user.departmentId });
+  res.json({ id: user.id, username: user.username, fullName: user.fullName, role: user.role, departmentId: user.departmentId, telegramChatId: user.telegramChatId || null });
+});
+
+app.get('/api/telegram/config', authenticateToken, (req, res) => {
+  res.json({
+    botUsername: process.env.TELEGRAM_BOT_USERNAME || 'pm_system_alert_bot',
+    isConfigured: !!process.env.TELEGRAM_BOT_TOKEN
+  });
 });
 
 // --- DEPARTMENTS APIS ---
