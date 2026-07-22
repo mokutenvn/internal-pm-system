@@ -3341,16 +3341,16 @@ export default function App() {
                   {/* List of Received Reports for Selected Week */}
                   <div>
                     <div style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                      DANH SÁCH BÁO CÁO CỦA NHÂN VIÊN GỬI ĐẾN ({reportsList.filter(r => r.weekStartDate === summaryWeek).length})
+                      DANH SÁCH BÁO CÁO CỦA NHÂN VIÊN GỬI ĐẾN ({(reports || []).filter(r => r.weekStartDate === summaryWeek).length})
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '350px', overflowY: 'auto' }}>
-                      {reportsList.filter(r => r.weekStartDate === summaryWeek).length === 0 ? (
+                      {(reports || []).filter(r => r.weekStartDate === summaryWeek).length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.85rem' }}>
                           Chưa có nhân viên nào gửi báo cáo cho tuần này ({summaryWeek}).
                         </div>
                       ) : (
-                        reportsList.filter(r => r.weekStartDate === summaryWeek).map(rep => (
+                        (reports || []).filter(r => r.weekStartDate === summaryWeek).map(rep => (
                           <div
                             key={rep.id}
                             style={{
