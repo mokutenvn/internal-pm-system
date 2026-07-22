@@ -394,7 +394,8 @@ export default function App() {
         const data = await res.json();
         setUser(data.user);
         localStorage.setItem('user', JSON.stringify(data.user));
-        alert(data.message);
+        alert(data.message || 'Đã hủy liên kết Telegram.');
+        fetchCoreData();
       } else {
         const data = await res.json();
         alert(data.message || 'Lỗi khi hủy liên kết.');
@@ -600,24 +601,7 @@ export default function App() {
     }
   };
 
-  const handleUnlinkTelegram = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/users/unlink-telegram`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setUser({ ...user, telegramChatId: null });
-        alert(data.message || 'Đã hủy liên kết Telegram.');
-        fetchCoreData();
-      } else {
-        alert(data.message || 'Không thể hủy liên kết.');
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
+
 
   const handleUpdateTaskProgress = async (taskId, progress) => {
     try {
